@@ -359,7 +359,7 @@ function Lightbox({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20 grid bg-white p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
+    <div className="fixed inset-0 z-20 overflow-y-auto bg-white p-5 sm:p-8">
       <button
         type="button"
         onClick={onClose}
@@ -368,23 +368,29 @@ function Lightbox({
       >
         ×
       </button>
-      <div className="grid min-h-0 place-items-center">
-        <Image
-          src={result.imageUrl}
-          alt={result.prompt}
-          width={width}
-          height={height}
-          unoptimized
-          className="max-h-[90vh] max-w-full object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
-        />
+      <div className="mx-auto grid min-h-full w-full max-w-[1680px] items-center gap-6 py-10 lg:grid-cols-[minmax(0,calc(100vw-520px))_minmax(320px,360px)] lg:justify-center lg:gap-10">
+        <div className="grid min-h-0 min-w-0 justify-center">
+          <Image
+            src={result.imageUrl}
+            alt={result.prompt}
+            width={width}
+            height={height}
+            unoptimized
+            className="max-h-[82vh] max-w-full object-contain shadow-[0_36px_100px_rgba(24,24,27,0.26)]"
+          />
+        </div>
+        <aside className="mx-auto flex w-full max-w-xl flex-col gap-3 text-sm leading-6 text-zinc-700 lg:mx-0 lg:min-w-80 lg:max-w-[360px] lg:max-h-[82vh] lg:justify-center">
+          <p className="max-h-[34vh] overflow-y-auto text-base leading-7 text-zinc-950 lg:max-h-[56vh]">
+            {result.prompt}
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-zinc-500 lg:flex-col lg:gap-2">
+            <span>{formatSizeLabel(result.size)}</span>
+            <span>{result.quality}</span>
+            <span>{result.outputFormat}</span>
+            <span>{result.createdAt}</span>
+          </div>
+        </aside>
       </div>
-      <aside className="mt-6 flex flex-col gap-3 text-sm leading-6 text-zinc-700 lg:mt-0 lg:justify-center">
-        <p className="text-base leading-7 text-zinc-950">{result.prompt}</p>
-        <p>{result.size}</p>
-        <p>{result.quality}</p>
-        <p>{result.outputFormat}</p>
-        <p>{result.createdAt}</p>
-      </aside>
     </div>
   );
 }
