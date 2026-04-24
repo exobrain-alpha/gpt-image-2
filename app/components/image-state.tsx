@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -23,9 +24,11 @@ type ImageContextValue = {
   quality: ImageQuality;
   outputFormat: ImageFormat;
   background: BackgroundMode;
+  referenceImage: string | null;
   activeResult: GeneratedImageResult | null;
   history: GeneratedImageResult[];
   tags: string[];
+  activeTags: string[];
   isGenerating: boolean;
   error: string | null;
   setPrompt: (value: string) => void;
@@ -33,7 +36,9 @@ type ImageContextValue = {
   setQuality: (value: ImageQuality) => void;
   setOutputFormat: (value: ImageFormat) => void;
   setBackground: (value: BackgroundMode) => void;
+  setReferenceImage: (value: string | null) => void;
   applyTag: (tag: string) => void;
+  addTag: (tag: string) => Promise<void>;
   generateImage: () => Promise<void>;
   selectResult: (result: GeneratedImageResult) => void;
   clearHistory: () => void;
@@ -41,32 +46,60 @@ type ImageContextValue = {
 
 const ImageContext = createContext<ImageContextValue | null>(null);
 
-const tagList = [
-  "电影感",
-  "产品摄影",
-  "浅景深",
-  "暖色灯光",
-  "极简构图",
-  "赛博朋克",
-  "水彩插画",
-  "真实质感",
-];
-
 export function ImageProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<ImageSize>("1024x1024");
   const [quality, setQuality] = useState<ImageQuality>("medium");
   const [outputFormat, setOutputFormat] = useState<ImageFormat>("png");
   const [background, setBackground] = useState<BackgroundMode>("auto");
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [history, setHistory] = useState<GeneratedImageResult[]>([]);
   const [activeResult, setActiveResult] =
     useState<GeneratedImageResult | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/tags")
+      .then((response) => response.json())
+      .then((data: { tags?: string[] }) => {
+        if (isMounted && Array.isArray(data.tags)) {
+          setTags(data.tags);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setTags([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const applyTag = useCallback((tag: string) => {
+    const isActive = activeTags.includes(tag);
+
+    setActiveTags((current) =>
+      isActive
+        ? current.filter((activeTag) => activeTag !== tag)
+        : [...current, tag],
+    );
     setPrompt((current) => {
       const normalized = current.trim();
+
+      if (isActive) {
+        return normalized
+          .split("，")
+          .map((part) => part.trim())
+          .filter((part) => part && part !== tag)
+          .join("，");
+      }
 
       if (!normalized) {
         return tag;
@@ -77,6 +110,43 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       }
 
       return `${normalized}，${tag}`;
+    });
+  }, [activeTags]);
+
+  const addTag = useCallback(async (tag: string) => {
+    const normalized = tag.trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    const response = await fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag: normalized }),
+    });
+    const data = (await response.json()) as { tags?: string[]; error?: string };
+
+    if (!response.ok || !Array.isArray(data.tags)) {
+      throw new Error(data.error ?? "保存常用词失败。");
+    }
+
+    setTags(data.tags);
+    setActiveTags((current) =>
+      current.includes(normalized) ? current : [...current, normalized],
+    );
+    setPrompt((current) => {
+      const normalizedPrompt = current.trim();
+
+      if (!normalizedPrompt) {
+        return normalized;
+      }
+
+      if (normalizedPrompt.includes(normalized)) {
+        return current;
+      }
+
+      return `${normalizedPrompt}，${normalized}`;
     });
   }, []);
 
@@ -99,7 +169,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
           size,
           quality,
           outputFormat,
-          background,
         }),
       });
       const data = (await response.json()) as
@@ -125,7 +194,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsGenerating(false);
     }
-  }, [background, isGenerating, outputFormat, prompt, quality, size]);
+  }, [isGenerating, outputFormat, prompt, quality, size]);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -139,9 +208,11 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       quality,
       outputFormat,
       background,
+      referenceImage,
       activeResult,
       history,
-      tags: tagList,
+      tags,
+      activeTags,
       isGenerating,
       error,
       setPrompt,
@@ -149,14 +220,18 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       setQuality,
       setOutputFormat,
       setBackground,
+      setReferenceImage,
       applyTag,
+      addTag,
       generateImage,
       selectResult: setActiveResult,
       clearHistory,
     }),
     [
       activeResult,
+      activeTags,
       applyTag,
+      addTag,
       background,
       clearHistory,
       error,
@@ -166,7 +241,9 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       outputFormat,
       prompt,
       quality,
+      referenceImage,
       size,
+      tags,
     ],
   );
 

@@ -21,6 +21,12 @@ type AzureImageResponse = {
   };
 };
 
+type GenerationContext = {
+  apiVersion: string;
+  deployment: string;
+  endpointKind: string;
+};
+
 const defaultApiVersion = "2025-04-01-preview";
 const defaultDeployment = "gpt-image-2";
 const generatedDirectory = path.join(
@@ -57,6 +63,9 @@ export async function POST(request: Request) {
 
   const payload = validation.value;
   const url = buildGenerationUrl(endpoint, deployment, apiVersion);
+  const endpointKind = endpoint.includes(".services.ai.azure.com")
+    ? "services.ai.azure.com"
+    : "openai.azure.com";
   let response: Response;
 
   try {
@@ -97,10 +106,6 @@ export async function POST(request: Request) {
     const deploymentNotFound =
       response.status === 404 ||
       azureCode === "DeploymentNotFound";
-    const endpointKind = endpoint.includes(".services.ai.azure.com")
-      ? "services.ai.azure.com"
-      : "openai.azure.com";
-
     return NextResponse.json(
       {
         error: deploymentNotFound
@@ -113,7 +118,15 @@ export async function POST(request: Request) {
 
   const images = await Promise.all(
     responseBody?.data?.flatMap((item, index) =>
-      item.b64_json ? [buildImageResult(item.b64_json, index, payload)] : [],
+      item.b64_json
+        ? [
+            buildImageResult(item.b64_json, index, payload, {
+              apiVersion,
+              deployment,
+              endpointKind,
+            }),
+          ]
+        : [],
     ) ?? [],
   );
 
@@ -145,32 +158,58 @@ async function buildImageResult(
   b64Json: string,
   index: number,
   payload: GenerateImageRequest,
+  context: GenerationContext,
 ) {
   await mkdir(generatedDirectory, { recursive: true });
 
   const id = `${Date.now()}-${index}`;
   const fileName = `${id}.${payload.outputFormat}`;
+  const metadataFileName = `${id}.json`;
   const diskPath = path.join(generatedDirectory, fileName);
+  const metadataPath = path.join(generatedDirectory, metadataFileName);
   const publicPath = `/generated-images/${fileName}`;
   const imageBuffer = Buffer.from(b64Json, "base64");
+  const createdAt = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date());
 
   await writeFile(diskPath, imageBuffer);
 
-  return {
+  const result = {
     id,
     prompt: payload.prompt,
     imageUrl: publicPath,
     filePath: diskPath,
+    metadataPath,
     size: payload.size,
     quality: payload.quality,
     outputFormat: payload.outputFormat,
     background: payload.background,
-    createdAt: new Intl.DateTimeFormat("zh-CN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(new Date()),
+    createdAt,
   };
+
+  await writeFile(
+    metadataPath,
+    `${JSON.stringify(
+      {
+        ...result,
+        request: {
+          prompt: payload.prompt,
+          size: payload.size,
+          quality: payload.quality,
+          outputFormat: payload.outputFormat,
+          background: payload.background,
+        },
+        provider: context,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  return result;
 }
 
 async function readAndValidateRequest(request: Request): Promise<

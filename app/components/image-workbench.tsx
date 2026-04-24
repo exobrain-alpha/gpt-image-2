@@ -1,32 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  backgroundModes,
   imageFormats,
   imageQualities,
   imageSizes,
-  type BackgroundMode,
   type GeneratedImageResult,
-  type ImageFormat,
   type ImageQuality,
   type ImageSize,
 } from "@/lib/image-options";
-import Image from "next/image";
 import { ImageProvider, useImageState } from "./image-state";
 
 export function ImageWorkbench() {
   return (
     <ImageProvider>
-      <main className="min-h-screen bg-stone-50 text-zinc-950">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-6 sm:px-8 lg:px-10">
-          <div className="grid items-stretch gap-6 lg:grid-cols-2">
+      <main className="min-h-screen bg-white text-zinc-950">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-5 py-8 sm:px-8 lg:px-10">
+          <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
             <PromptPanel />
             <PreviewPanel />
           </div>
           <HistoryPanel />
         </div>
-        <BackToTopButton />
       </main>
     </ImageProvider>
   );
@@ -42,189 +38,174 @@ function PromptPanel() {
     setQuality,
     outputFormat,
     setOutputFormat,
-    background,
-    setBackground,
+    referenceImage,
+    setReferenceImage,
     tags,
+    activeTags,
     applyTag,
+    addTag,
     generateImage,
     isGenerating,
     error,
   } = useImageState();
+  const [newTag, setNewTag] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <section
-      aria-labelledby="prompt-title"
-      className="flex min-h-[560px] flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5 shadow-sm"
-    >
-      <div className="flex flex-col gap-4">
-        <div>
-          <p className="text-sm font-medium text-teal-700">
-            Microsoft Foundry GPT-Image-2
-          </p>
-          <h1 id="prompt-title" className="mt-2 text-3xl font-semibold">
-            本地文生图工作台
-          </h1>
-        </div>
+    <section className="flex flex-col gap-5">
+      <h1 className="text-3xl font-semibold tracking-normal text-zinc-950">
+        Microsoft Foundry GPT-Image-2
+      </h1>
 
-        <label
-          htmlFor="prompt"
-          className="text-sm font-semibold text-zinc-700"
-        >
-          Prompt 输入框
-        </label>
-        <textarea
-          id="prompt"
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="描述画面主体、风格、构图、光线和材质..."
-          className="min-h-52 resize-y rounded-md border border-zinc-300 bg-zinc-50 p-4 text-base leading-7 outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-100"
-        />
+      <textarea
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        placeholder="Prompt"
+        className="min-h-56 resize-y rounded-xl border border-zinc-200 bg-white p-4 text-base leading-7 shadow-[0_18px_55px_rgba(24,24,27,0.08)] outline-none transition focus:border-zinc-950 focus:shadow-[0_22px_70px_rgba(24,24,27,0.12)]"
+      />
 
-        <GenerationOptions
-          size={size}
-          setSize={setSize}
-          quality={quality}
-          setQuality={setQuality}
-          outputFormat={outputFormat}
-          setOutputFormat={setOutputFormat}
-          background={background}
-          setBackground={setBackground}
-        />
+      <div className="flex flex-wrap gap-2">
+        {imageSizes.map((nextSize) => (
+          <TagButton
+            key={nextSize}
+            active={size === nextSize}
+            onClick={() => setSize(nextSize)}
+          >
+            {formatSizeLabel(nextSize)}
+          </TagButton>
+        ))}
+        {imageQualities.map((nextQuality) => (
+          <TagButton
+            key={nextQuality}
+            active={quality === nextQuality}
+            onClick={() => setQuality(nextQuality)}
+          >
+            {qualityLabel(nextQuality)}
+          </TagButton>
+        ))}
+        {imageFormats.map((format) => (
+          <TagButton
+            key={format}
+            active={outputFormat === format}
+            onClick={() => setOutputFormat(format)}
+          >
+            {format.toUpperCase()}
+          </TagButton>
+        ))}
+        {tags.map((tag) => (
+          <TagButton
+            key={tag}
+            active={activeTags.includes(tag)}
+            onClick={() => applyTag(tag)}
+          >
+            {tag}
+          </TagButton>
+        ))}
       </div>
 
-      <div className="mt-6 flex flex-col gap-5">
-        <section aria-labelledby="tags-title">
-          <h2 id="tags-title" className="text-sm font-semibold text-zinc-700">
-            常用词或短语标签列表
-          </h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => applyTag(tag)}
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-teal-600 hover:text-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-100"
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        </section>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          addTag(newTag)
+            .then(() => setNewTag(""))
+            .catch(() => setNewTag(""));
+        }}
+      >
+        <input
+          value={newTag}
+          onChange={(event) => setNewTag(event.target.value)}
+          placeholder="新增常用词"
+          className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-sm shadow-[0_10px_28px_rgba(24,24,27,0.06)] outline-none transition focus:border-zinc-950 focus:shadow-[0_14px_38px_rgba(24,24,27,0.10)]"
+        />
+        <button
+          type="submit"
+          className="rounded-xl bg-zinc-950 px-4 py-2 text-sm font-medium text-white shadow-[0_14px_34px_rgba(24,24,27,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(24,24,27,0.22)] disabled:translate-y-0 disabled:bg-zinc-300 disabled:shadow-none"
+          disabled={!newTag.trim()}
+        >
+          添加
+        </button>
+      </form>
 
-        {error ? (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
+      <div className="flex flex-col gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
 
+            if (!file) {
+              return;
+            }
+
+            setReferenceImage(URL.createObjectURL(file));
+          }}
+        />
         <button
           type="button"
-          onClick={generateImage}
-          disabled={isGenerating || prompt.trim().length < 2}
-          className="inline-flex h-12 items-center justify-center rounded-md bg-zinc-950 px-5 text-base font-semibold text-white transition hover:bg-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-fit rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium shadow-[0_10px_28px_rgba(24,24,27,0.06)] transition hover:-translate-y-0.5 hover:border-zinc-950 hover:shadow-[0_16px_36px_rgba(24,24,27,0.10)]"
         >
-          {isGenerating ? "生成中..." : "生成图片"}
+          选择参考图
         </button>
+        {referenceImage ? (
+          <button
+            type="button"
+            onClick={() => setReferenceImage(null)}
+            className="w-fit"
+            aria-label="移除参考图"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={referenceImage}
+              alt=""
+              className="max-h-48 max-w-full rounded-xl object-contain shadow-[0_18px_48px_rgba(24,24,27,0.12)]"
+            />
+          </button>
+        ) : (
+          <div className="grid min-h-28 place-items-center text-sm text-zinc-400">
+            暂无参考图
+          </div>
+        )}
       </div>
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={generateImage}
+        disabled={isGenerating || prompt.trim().length < 2}
+        className="h-12 rounded-xl bg-zinc-950 px-5 text-base font-semibold text-white shadow-[0_18px_46px_rgba(24,24,27,0.22)] transition hover:-translate-y-0.5 hover:bg-zinc-800 hover:shadow-[0_24px_58px_rgba(24,24,27,0.26)] disabled:translate-y-0 disabled:bg-zinc-300 disabled:text-zinc-600 disabled:shadow-none"
+      >
+        {isGenerating ? "生成中..." : "生成图片"}
+      </button>
     </section>
   );
 }
 
-function GenerationOptions({
-  size,
-  setSize,
-  quality,
-  setQuality,
-  outputFormat,
-  setOutputFormat,
-  background,
-  setBackground,
+function TagButton({
+  active,
+  onClick,
+  children,
 }: {
-  size: ImageSize;
-  setSize: (value: ImageSize) => void;
-  quality: ImageQuality;
-  setQuality: (value: ImageQuality) => void;
-  outputFormat: ImageFormat;
-  setOutputFormat: (value: ImageFormat) => void;
-  background: BackgroundMode;
-  setBackground: (value: BackgroundMode) => void;
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <SelectField
-        id="size"
-        label="尺寸"
-        value={size}
-        options={imageSizes}
-        onChange={setSize}
-      />
-      <SelectField
-        id="quality"
-        label="质量"
-        value={quality}
-        options={imageQualities}
-        onChange={setQuality}
-      />
-      <SelectField
-        id="output-format"
-        label="格式"
-        value={outputFormat}
-        options={imageFormats}
-        onChange={(value) => {
-          setOutputFormat(value);
-
-          if (value === "jpeg" && background === "transparent") {
-            setBackground("auto");
-          }
-        }}
-      />
-      <SelectField
-        id="background"
-        label="背景"
-        value={background}
-        options={backgroundModes}
-        onChange={setBackground}
-        disabledOptions={outputFormat === "jpeg" ? ["transparent"] : []}
-      />
-    </div>
-  );
-}
-
-function SelectField<T extends string>({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-  disabledOptions = [],
-}: {
-  id: string;
-  label: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-  disabledOptions?: T[];
-}) {
-  return (
-    <label htmlFor={id} className="flex flex-col gap-2 text-sm font-semibold">
-      {label}
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-        className="h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 outline-none transition focus:border-teal-600 focus:ring-4 focus:ring-teal-100"
-      >
-        {options.map((option) => (
-          <option
-            key={option}
-            value={option}
-            disabled={disabledOptions.includes(option)}
-          >
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+        active
+          ? "border-zinc-950 bg-zinc-950 text-white shadow-[0_14px_32px_rgba(24,24,27,0.18)]"
+          : "border-zinc-200 bg-white text-zinc-700 shadow-[0_8px_22px_rgba(24,24,27,0.05)] hover:-translate-y-0.5 hover:border-zinc-950 hover:shadow-[0_14px_32px_rgba(24,24,27,0.10)]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -232,47 +213,15 @@ function PreviewPanel() {
   const { activeResult, isGenerating } = useImageState();
 
   return (
-    <section
-      aria-labelledby="preview-title"
-      className="flex min-h-[560px] flex-col rounded-lg border border-zinc-200 bg-zinc-950 p-5 text-white shadow-sm"
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-teal-200">生成结果预览区</p>
-          <h2 id="preview-title" className="mt-2 text-2xl font-semibold">
-            当前预览
-          </h2>
-        </div>
-        {activeResult ? (
-          <span className="rounded-md border border-white/15 px-3 py-1 text-sm text-zinc-200">
-            {activeResult.size}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-6 flex flex-1 overflow-hidden rounded-lg border border-white/10 bg-black">
-        {activeResult ? (
-          <PreviewImage result={activeResult} />
-        ) : (
-          <EmptyPreview isGenerating={isGenerating} />
-        )}
-      </div>
+    <section className="grid min-h-[420px] place-items-center lg:min-h-[620px]">
+      {activeResult ? (
+        <PreviewImage result={activeResult} />
+      ) : (
+        <p className="text-sm text-zinc-400">
+          {isGenerating ? "生成中..." : "暂无图片"}
+        </p>
+      )}
     </section>
-  );
-}
-
-function EmptyPreview({ isGenerating }: { isGenerating: boolean }) {
-  return (
-    <div className="grid flex-1 place-items-center p-6 text-center text-zinc-300">
-      <div>
-        <p className="text-lg font-semibold">
-          {isGenerating ? "正在生成图片" : "还没有生成结果"}
-        </p>
-        <p className="mt-2 text-sm leading-6 text-zinc-400">
-          输入 prompt 并点击生成后，图片会显示在这里。
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -280,146 +229,198 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
   const { width, height } = getImageDimensions(result.size);
 
   return (
-    <article className="flex flex-1 flex-col">
-      <div className="grid min-h-[380px] flex-1 place-items-center bg-zinc-900 p-4">
-        <Image
-          src={result.imageUrl}
-          alt={result.prompt}
-          width={width}
-          height={height}
-          unoptimized
-          className="max-h-[70vh] max-w-full rounded-md object-contain"
-        />
-      </div>
-      <div className="border-t border-white/10 p-4">
-        <p className="text-sm font-medium text-teal-200">{result.createdAt}</p>
-        <p className="mt-2 text-base leading-7 text-zinc-100">{result.prompt}</p>
-        <p className="mt-3 break-all rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-zinc-300">
-          已保存：{result.filePath}
-        </p>
-      </div>
-    </article>
+    <Image
+      src={result.imageUrl}
+      alt={result.prompt}
+      width={width}
+      height={height}
+      unoptimized
+      priority
+      className="max-h-[72vh] max-w-full rounded-xl object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
+    />
   );
 }
 
 function HistoryPanel() {
   const { history, selectResult, clearHistory } = useImageState();
+  const [columns, setColumns] = useState(1);
+  const [lightboxResult, setLightboxResult] =
+    useState<GeneratedImageResult | null>(null);
+  const distributedHistory = useMemo(
+    () => distributeHistory(history, columns),
+    [columns, history],
+  );
+
+  useEffect(() => {
+    const updateColumns = () => {
+      const width = window.innerWidth;
+
+      if (width >= 1280) {
+        setColumns(4);
+      } else if (width >= 900) {
+        setColumns(3);
+      } else if (width >= 560) {
+        setColumns(2);
+      } else {
+        setColumns(1);
+      }
+    };
+
+    updateColumns();
+    window.addEventListener("resize", updateColumns);
+
+    return () => window.removeEventListener("resize", updateColumns);
+  }, []);
+
+  if (history.length === 0) {
+    return <section className="min-h-36" />;
+  }
 
   return (
-    <section aria-labelledby="history-title">
-      <div className="mb-4 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-teal-700">历史生成结果列表</p>
-          <h2 id="history-title" className="mt-1 text-2xl font-semibold">
-            历史结果
-          </h2>
-        </div>
-        {history.length > 0 ? (
-          <button
-            type="button"
-            onClick={clearHistory}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-red-500 hover:text-red-600 focus:outline-none focus:ring-4 focus:ring-red-100"
-          >
-            清空
-          </button>
-        ) : null}
+    <section>
+      <div
+        className="grid items-start gap-4"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
+        {distributedHistory.map((column, columnIndex) => (
+          <div key={columnIndex} className="flex flex-col gap-4">
+            {column.map((result) => (
+              <HistoryItem
+                key={result.id}
+                result={result}
+                onClick={() => {
+                  selectResult(result);
+                  setLightboxResult(result);
+                }}
+              />
+            ))}
+          </div>
+        ))}
       </div>
-
-      {history.length > 0 ? (
-        <div className="masonry">
-          {history.map((result) => (
-            <HistoryItem
-              key={result.id}
-              result={result}
-              selectResult={selectResult}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-600">
-          生成后的图片会保存在这里，页面使用 body 滚动。
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={clearHistory}
+        className="mt-6 text-sm font-medium text-zinc-500 transition hover:text-zinc-950"
+      >
+        清空
+      </button>
+      {lightboxResult ? (
+        <Lightbox
+          result={lightboxResult}
+          onClose={() => setLightboxResult(null)}
+        />
+      ) : null}
     </section>
   );
 }
 
 function HistoryItem({
   result,
-  selectResult,
+  onClick,
 }: {
   result: GeneratedImageResult;
-  selectResult: (result: GeneratedImageResult) => void;
+  onClick: () => void;
 }) {
   const { width, height } = getImageDimensions(result.size);
 
   return (
-    <button
-      type="button"
-      onClick={() => selectResult(result)}
-      className="masonry-item mb-4 w-full overflow-hidden rounded-lg border border-zinc-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-teal-100"
-    >
-      <span className="block bg-zinc-100 p-2">
+    <button type="button" onClick={onClick} className="block w-full">
+      <Image
+        src={result.imageUrl}
+        alt=""
+        width={width}
+        height={height}
+        unoptimized
+        className="h-auto w-full rounded-xl object-cover shadow-[0_16px_42px_rgba(24,24,27,0.10)] transition hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(24,24,27,0.16)]"
+      />
+    </button>
+  );
+}
+
+function Lightbox({
+  result,
+  onClose,
+}: {
+  result: GeneratedImageResult;
+  onClose: () => void;
+}) {
+  const { width, height } = getImageDimensions(result.size);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-20 grid bg-white p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="关闭"
+        className="absolute right-5 top-5 z-10 text-3xl leading-none text-zinc-500 hover:text-zinc-950"
+      >
+        ×
+      </button>
+      <div className="grid min-h-0 place-items-center">
         <Image
           src={result.imageUrl}
-          alt=""
+          alt={result.prompt}
           width={width}
           height={height}
           unoptimized
-          className="h-auto w-full rounded-md object-cover"
+          className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
         />
-      </span>
-      <span className="block p-4">
-        <span className="block text-sm font-medium text-teal-700">
-          {result.createdAt} / {result.size}
-        </span>
-        <span className="mt-1 block break-all text-xs leading-5 text-zinc-500">
-          {result.imageUrl}
-        </span>
-        <span className="mt-2 block text-base font-semibold leading-7 text-zinc-900">
-          {result.prompt}
-        </span>
-      </span>
-    </button>
+      </div>
+      <aside className="mt-6 flex flex-col gap-3 text-sm leading-6 text-zinc-700 lg:mt-0 lg:justify-center">
+        <p className="text-base leading-7 text-zinc-950">{result.prompt}</p>
+        <p>{result.size}</p>
+        <p>{result.quality}</p>
+        <p>{result.outputFormat}</p>
+        <p>{result.createdAt}</p>
+      </aside>
+    </div>
   );
 }
 
-function BackToTopButton() {
-  const [visible] = useStateFromScroll();
+function distributeHistory(results: GeneratedImageResult[], columnCount: number) {
+  const count = Math.max(1, columnCount);
+  const columns = Array.from({ length: count }, () => [] as GeneratedImageResult[]);
+  const heights = Array.from({ length: count }, () => 0);
 
-  if (!visible) {
-    return null;
-  }
+  results.forEach((result) => {
+    const targetIndex = heights.indexOf(Math.min(...heights));
+    const { width, height } = getImageDimensions(result.size);
 
-  return (
-    <button
-      type="button"
-      aria-label="返回顶部"
-      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-      className="fixed bottom-5 right-5 z-10 grid h-12 w-12 place-items-center rounded-md bg-zinc-950 text-xl font-bold text-white shadow-lg transition hover:bg-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200"
-    >
-      ↑
-    </button>
-  );
-}
+    columns[targetIndex].push(result);
+    heights[targetIndex] += height / width;
+  });
 
-function useStateFromScroll() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const updateVisibility = () => setVisible(window.scrollY > 24);
-
-    updateVisibility();
-    window.addEventListener("scroll", updateVisibility, { passive: true });
-
-    return () => window.removeEventListener("scroll", updateVisibility);
-  }, []);
-
-  return [visible, setVisible] as const;
+  return columns;
 }
 
 function getImageDimensions(size: ImageSize) {
   const [width, height] = size.split("x").map(Number);
 
   return { width, height };
+}
+
+function formatSizeLabel(size: ImageSize) {
+  return size.replace("x", " x ");
+}
+
+function qualityLabel(quality: ImageQuality) {
+  const labels: Record<ImageQuality, string> = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+  };
+
+  return labels[quality];
 }

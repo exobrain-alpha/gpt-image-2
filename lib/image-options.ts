@@ -20,7 +20,7 @@ export type GenerateImageRequest = {
   size: ImageSize;
   quality: ImageQuality;
   outputFormat: ImageFormat;
-  background: BackgroundMode;
+  background?: BackgroundMode;
 };
 
 export type GeneratedImageResult = {
@@ -28,6 +28,7 @@ export type GeneratedImageResult = {
   prompt: string;
   imageUrl: string;
   filePath: string;
+  metadataPath: string;
   size: ImageSize;
   quality: ImageQuality;
   outputFormat: ImageFormat;
