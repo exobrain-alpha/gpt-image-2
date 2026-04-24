@@ -15,9 +15,9 @@ import { ImageProvider, useImageState } from "./image-state";
 export function ImageWorkbench() {
   return (
     <ImageProvider>
-      <main className="min-h-screen bg-white text-zinc-950">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-5 py-8 sm:px-8 lg:px-10">
-          <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
+      <main className="app-surface">
+        <div className="workbench-shell">
+          <div className="workbench-grid">
             <PromptPanel />
             <PreviewPanel />
           </div>
@@ -49,22 +49,30 @@ function PromptPanel() {
     error,
   } = useImageState();
   const [newTag, setNewTag] = useState("");
+  const [isDraggingReference, setIsDraggingReference] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const applyReferenceFile = (file: File | undefined) => {
+    if (!file?.type.startsWith("image/")) {
+      return;
+    }
+
+    setReferenceImage(URL.createObjectURL(file));
+  };
 
   return (
-    <section className="flex flex-col gap-5">
-      <h1 className="text-3xl font-semibold tracking-normal text-zinc-950">
-        Microsoft Foundry GPT-Image-2
+    <section className="prompt-zone">
+      <h1 className="product-title">
+        GPT-Image-2
       </h1>
 
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         placeholder="Prompt"
-        className="min-h-56 resize-y rounded-xl border border-zinc-200 bg-white p-4 text-base leading-7 shadow-[0_18px_55px_rgba(24,24,27,0.08)] outline-none transition focus:border-zinc-950 focus:shadow-[0_22px_70px_rgba(24,24,27,0.12)]"
+        className="prompt-input"
       />
 
-      <div className="flex flex-wrap gap-2">
+      <div className="tag-cloud">
         {imageSizes.map((nextSize) => (
           <TagButton
             key={nextSize}
@@ -104,7 +112,7 @@ function PromptPanel() {
       </div>
 
       <form
-        className="flex gap-2"
+        className="tag-form"
         onSubmit={(event) => {
           event.preventDefault();
           addTag(newTag)
@@ -116,68 +124,75 @@ function PromptPanel() {
           value={newTag}
           onChange={(event) => setNewTag(event.target.value)}
           placeholder="新增常用词"
-          className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-sm shadow-[0_10px_28px_rgba(24,24,27,0.06)] outline-none transition focus:border-zinc-950 focus:shadow-[0_14px_38px_rgba(24,24,27,0.10)]"
+          className="tag-input"
         />
         <button
           type="submit"
-          className="rounded-xl bg-zinc-950 px-4 py-2 text-sm font-medium text-white shadow-[0_14px_34px_rgba(24,24,27,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(24,24,27,0.22)] disabled:translate-y-0 disabled:bg-zinc-300 disabled:shadow-none"
+          className="small-command"
           disabled={!newTag.trim()}
         >
           添加
         </button>
       </form>
 
-      <div className="flex flex-col gap-3">
+      <div className="reference-zone">
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
           className="hidden"
           onChange={(event) => {
-            const file = event.target.files?.[0];
-
-            if (!file) {
-              return;
-            }
-
-            setReferenceImage(URL.createObjectURL(file));
+            applyReferenceFile(event.target.files?.[0]);
+            event.target.value = "";
           }}
         />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="w-fit rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium shadow-[0_10px_28px_rgba(24,24,27,0.06)] transition hover:-translate-y-0.5 hover:border-zinc-950 hover:shadow-[0_16px_36px_rgba(24,24,27,0.10)]"
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setIsDraggingReference(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              setIsDraggingReference(false);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsDraggingReference(false);
+            applyReferenceFile(event.dataTransfer.files[0]);
+          }}
+          className={`reference-dropzone ${
+            isDraggingReference ? "reference-dropzone-active" : ""
+          }`}
         >
-          选择参考图
+          {referenceImage ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={referenceImage} alt="" className="reference-image" />
+          ) : (
+            <span className="reference-empty">拖入参考图或点击选择</span>
+          )}
         </button>
         {referenceImage ? (
           <button
             type="button"
             onClick={() => setReferenceImage(null)}
-            className="w-fit"
-            aria-label="移除参考图"
+            className="reference-remove"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={referenceImage}
-              alt=""
-              className="max-h-48 max-w-full object-contain shadow-[0_18px_48px_rgba(24,24,27,0.12)]"
-            />
+            移除参考图
           </button>
-        ) : (
-          <div className="grid min-h-28 place-items-center text-sm text-zinc-400">
-            暂无参考图
-          </div>
-        )}
+        ) : null}
       </div>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="error-text">{error}</p> : null}
 
       <button
         type="button"
         onClick={generateImage}
         disabled={isGenerating || prompt.trim().length < 2}
-        className="h-12 rounded-xl bg-zinc-950 px-5 text-base font-semibold text-white shadow-[0_18px_46px_rgba(24,24,27,0.22)] transition hover:-translate-y-0.5 hover:bg-zinc-800 hover:shadow-[0_24px_58px_rgba(24,24,27,0.26)] disabled:translate-y-0 disabled:bg-zinc-300 disabled:text-zinc-600 disabled:shadow-none"
+        className="generate-command"
       >
         {isGenerating ? "生成中..." : "生成图片"}
       </button>
@@ -198,11 +213,7 @@ function TagButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-        active
-          ? "border-zinc-950 bg-zinc-950 text-white shadow-[0_14px_32px_rgba(24,24,27,0.18)]"
-          : "border-zinc-200 bg-white text-zinc-700 shadow-[0_8px_22px_rgba(24,24,27,0.05)] hover:-translate-y-0.5 hover:border-zinc-950 hover:shadow-[0_14px_32px_rgba(24,24,27,0.10)]"
-      }`}
+      className={`tag-button ${active ? "tag-button-active" : ""}`}
     >
       {children}
     </button>
@@ -213,11 +224,11 @@ function PreviewPanel() {
   const { activeResult, isGenerating } = useImageState();
 
   return (
-    <section className="grid min-h-[420px] place-items-center lg:min-h-[620px]">
+    <section className="preview-zone">
       {activeResult ? (
         <PreviewImage result={activeResult} />
       ) : (
-        <p className="text-sm text-zinc-400">
+        <p className="preview-empty">
           {isGenerating ? "生成中..." : "暂无图片"}
         </p>
       )}
@@ -236,7 +247,7 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
       height={height}
       unoptimized
       priority
-      className="max-h-[72vh] max-w-full object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
+      className="preview-image"
     />
   );
 }
@@ -279,11 +290,11 @@ function HistoryPanel() {
   return (
     <section>
       <div
-        className="grid items-start gap-1.5"
+        className="history-grid"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {distributedHistory.map((column, columnIndex) => (
-          <div key={columnIndex} className="flex flex-col gap-1.5">
+          <div key={columnIndex} className="history-column">
             {column.map((result) => (
               <HistoryItem
                 key={result.id}
@@ -300,7 +311,7 @@ function HistoryPanel() {
       <button
         type="button"
         onClick={clearHistory}
-        className="mt-6 text-sm font-medium text-zinc-500 transition hover:text-zinc-950"
+        className="clear-history"
       >
         清空
       </button>
@@ -324,14 +335,14 @@ function HistoryItem({
   const { width, height } = getImageDimensions(result.size);
 
   return (
-    <button type="button" onClick={onClick} className="block w-full">
+    <button type="button" onClick={onClick} className="history-item">
       <Image
         src={result.imageUrl}
         alt=""
         width={width}
         height={height}
         unoptimized
-        className="h-auto w-full object-cover shadow-[0_16px_42px_rgba(24,24,27,0.10)] transition hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(24,24,27,0.16)]"
+        className="history-image"
       />
     </button>
   );
@@ -359,31 +370,31 @@ function Lightbox({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20 overflow-y-auto bg-white p-5 sm:p-8">
+    <div className="lightbox">
       <button
         type="button"
         onClick={onClose}
         aria-label="关闭"
-        className="absolute right-5 top-5 z-10 text-3xl leading-none text-zinc-500 hover:text-zinc-950"
+        className="lightbox-close"
       >
         ×
       </button>
-      <div className="mx-auto grid min-h-full w-full max-w-[1680px] items-center gap-6 py-10 lg:grid-cols-[minmax(0,calc(100vw-520px))_minmax(320px,360px)] lg:justify-center lg:gap-10">
-        <div className="grid min-h-0 min-w-0 justify-center">
+      <div className="lightbox-layout">
+        <div className="lightbox-image-wrap">
           <Image
             src={result.imageUrl}
             alt={result.prompt}
             width={width}
             height={height}
             unoptimized
-            className="max-h-[82vh] max-w-full object-contain shadow-[0_36px_100px_rgba(24,24,27,0.26)]"
+            className="lightbox-image"
           />
         </div>
-        <aside className="mx-auto flex w-full max-w-xl flex-col gap-3 text-sm leading-6 text-zinc-700 lg:mx-0 lg:min-w-80 lg:max-w-[360px] lg:max-h-[82vh] lg:justify-center">
-          <p className="max-h-[34vh] overflow-y-auto text-base leading-7 text-zinc-950 lg:max-h-[56vh]">
+        <aside className="lightbox-meta">
+          <p className="lightbox-prompt">
             {result.prompt}
           </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-zinc-500 lg:flex-col lg:gap-2">
+          <div className="lightbox-facts">
             <span>{formatSizeLabel(result.size)}</span>
             <span>{result.quality}</span>
             <span>{result.outputFormat}</span>

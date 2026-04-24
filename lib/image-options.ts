@@ -1,9 +1,7 @@
 export const imageSizes = [
   "1024x1024",
-  "1536x1024",
   "1024x1536",
-  "1920x1088",
-  "1088x1920",
+  "1536x1024",
 ] as const;
 
 export const imageQualities = ["low", "medium", "high"] as const;
