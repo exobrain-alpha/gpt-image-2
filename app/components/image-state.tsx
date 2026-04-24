@@ -19,6 +19,13 @@ import {
   type ImageSize,
 } from "@/lib/image-options";
 
+type GenerateImageErrorResponse = {
+  error?: string;
+  code?: string;
+  type?: string;
+  innerCode?: string;
+};
+
 type ImageContextValue = {
   prompt: string;
   size: ImageSize;
@@ -32,7 +39,9 @@ type ImageContextValue = {
   activeTags: string[];
   isGenerating: boolean;
   isAutoGenerating: boolean;
+  generationPhase: "idle" | "waiting" | "generating";
   generationSeconds: number;
+  rateLimitWaitSeconds: number;
   error: string | null;
   setPrompt: (value: string) => void;
   setSize: (value: ImageSize) => void;
@@ -50,6 +59,7 @@ type ImageContextValue = {
 };
 
 const ImageContext = createContext<ImageContextValue | null>(null);
+const minimumRequestIntervalMs = 30_000;
 
 export function ImageProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState("");
@@ -65,11 +75,15 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [generationPhase, setGenerationPhase] =
+    useState<ImageContextValue["generationPhase"]>("idle");
   const [generationSeconds, setGenerationSeconds] = useState(0);
+  const [rateLimitWaitSeconds, setRateLimitWaitSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const isGeneratingRef = useRef(false);
   const isAutoGeneratingRef = useRef(false);
   const isAutoLoopRunningRef = useRef(false);
+  const lastRequestStartedAtRef = useRef(0);
   const requestRef = useRef({
     prompt,
     size,
@@ -87,7 +101,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   }, [outputFormat, prompt, quality, size]);
 
   useEffect(() => {
-    if (!isGenerating) {
+    if (generationPhase !== "generating") {
       return;
     }
 
@@ -97,7 +111,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [isGenerating]);
+  }, [generationPhase]);
 
   useEffect(() => {
     let isMounted = true;
@@ -188,20 +202,69 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const runGeneration = useCallback(async () => {
-    const { prompt: currentPrompt, size, quality, outputFormat } = requestRef.current;
-    const normalized = currentPrompt.trim();
+  const waitForRateLimit = useCallback(async (cancelWhenStopped: boolean) => {
+    const elapsed = Date.now() - lastRequestStartedAtRef.current;
+    let remaining = Math.max(0, minimumRequestIntervalMs - elapsed);
 
-    if (!normalized || isGeneratingRef.current) {
+    if (remaining <= 0) {
+      return true;
+    }
+
+    setGenerationPhase("waiting");
+
+    while (remaining > 0) {
+      if (cancelWhenStopped && !isAutoGeneratingRef.current) {
+        setRateLimitWaitSeconds(0);
+        return false;
+      }
+
+      setRateLimitWaitSeconds(Math.ceil(remaining / 1000));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)));
+      remaining = Math.max(
+        0,
+        minimumRequestIntervalMs - (Date.now() - lastRequestStartedAtRef.current),
+      );
+    }
+
+    setRateLimitWaitSeconds(0);
+
+    return true;
+  }, []);
+
+  const runGeneration = useCallback(async (cancelWhenStopped = false) => {
+    if (isGeneratingRef.current) {
       return;
     }
 
     isGeneratingRef.current = true;
     setGenerationSeconds(0);
+    setRateLimitWaitSeconds(0);
     setIsGenerating(true);
     setError(null);
 
     try {
+      const canContinue = await waitForRateLimit(cancelWhenStopped);
+
+      if (!canContinue) {
+        return;
+      }
+
+      const {
+        prompt: currentPrompt,
+        size,
+        quality,
+        outputFormat,
+      } = requestRef.current;
+      const normalized = currentPrompt.trim();
+
+      if (!normalized) {
+        return;
+      }
+
+      setGenerationPhase("generating");
+      setGenerationSeconds(0);
+      lastRequestStartedAtRef.current = Date.now();
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -214,10 +277,24 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       });
       const data = (await response.json()) as
         | GenerateImageResponse
-        | { error?: string };
+        | GenerateImageErrorResponse;
 
       if (!response.ok || !("images" in data)) {
         const message = "error" in data ? data.error : undefined;
+        const failure = "images" in data ? null : data;
+
+        if (isContentSafetyFailure(failure)) {
+          const blockedResult = buildBlockedResult({
+            prompt: normalized,
+            size,
+            quality,
+            outputFormat,
+            message: message ?? "这次请求被内容安全策略拦截。",
+            code: failure?.innerCode ?? failure?.code,
+          });
+
+          setHistory((current) => [blockedResult, ...current].slice(0, 20));
+        }
 
         throw new Error(message ?? "生成失败，请稍后重试。");
       }
@@ -235,8 +312,10 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     } finally {
       isGeneratingRef.current = false;
       setIsGenerating(false);
+      setGenerationPhase("idle");
+      setRateLimitWaitSeconds(0);
     }
-  }, []);
+  }, [waitForRateLimit]);
 
   const generateImage = useCallback(async () => {
     await runGeneration();
@@ -250,10 +329,10 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     isAutoLoopRunningRef.current = true;
 
     while (isAutoGeneratingRef.current) {
-      await runGeneration();
+      await runGeneration(true);
 
       if (isAutoGeneratingRef.current) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
 
@@ -297,7 +376,9 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       activeTags,
       isGenerating,
       isAutoGenerating,
+      generationPhase,
       generationSeconds,
+      rateLimitWaitSeconds,
       error,
       setPrompt,
       setSize,
@@ -322,6 +403,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       clearHistory,
       error,
       generateImage,
+      generationPhase,
       generationSeconds,
       history,
       isAutoGenerating,
@@ -330,6 +412,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       prompt,
       quality,
       referenceImage,
+      rateLimitWaitSeconds,
       size,
       startAutoGeneration,
       stopAutoGeneration,
@@ -350,4 +433,66 @@ export function useImageState() {
   }
 
   return value;
+}
+
+function isContentSafetyFailure(error: GenerateImageErrorResponse | null) {
+  const text = [
+    error?.error,
+    error?.code,
+    error?.type,
+    error?.innerCode,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    text.includes("content_policy_violation") ||
+    text.includes("responsibleaipolicyviolation") ||
+    text.includes("content filter") ||
+    text.includes("content_filter") ||
+    text.includes("safety") ||
+    text.includes("内容安全") ||
+    text.includes("安全策略") ||
+    text.includes("有害内容")
+  );
+}
+
+function buildBlockedResult({
+  prompt,
+  size,
+  quality,
+  outputFormat,
+  message,
+  code,
+}: {
+  prompt: string;
+  size: ImageSize;
+  quality: ImageQuality;
+  outputFormat: ImageFormat;
+  message: string;
+  code?: string;
+}): GeneratedImageResult {
+  return {
+    id: `blocked-${Date.now()}`,
+    prompt,
+    imageUrl: "",
+    filePath: "",
+    metadataPath: "",
+    size,
+    quality,
+    outputFormat,
+    background: "auto",
+    createdAt: new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(new Date()),
+    status: "blocked",
+    errorMessage: message,
+    errorCode: code,
+  };
 }

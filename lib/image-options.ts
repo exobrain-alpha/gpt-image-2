@@ -34,6 +34,9 @@ export type GeneratedImageResult = {
   outputFormat: ImageFormat;
   background: BackgroundMode;
   createdAt: string;
+  status?: "generated" | "blocked";
+  errorMessage?: string;
+  errorCode?: string;
 };
 
 export type GenerateImageResponse = {

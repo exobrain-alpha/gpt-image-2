@@ -244,24 +244,87 @@ function TagButton({
 }
 
 function PreviewPanel() {
-  const { activeResult, isGenerating, generationSeconds } = useImageState();
+  const {
+    activeResult,
+    isGenerating,
+    generationPhase,
+    generationSeconds,
+    rateLimitWaitSeconds,
+  } = useImageState();
 
   return (
     <section className="preview-zone">
       {activeResult ? (
-        <PreviewImage result={activeResult} />
+        <>
+          <PreviewImage result={activeResult} />
+          <PreviewStatus
+            generationPhase={generationPhase}
+            generationSeconds={generationSeconds}
+            rateLimitWaitSeconds={rateLimitWaitSeconds}
+          />
+        </>
       ) : (
-        <p className="preview-empty">
-          <span>{isGenerating ? "生成中..." : "暂无图片"}</span>
-          {isGenerating ? <span>{formatSeconds(generationSeconds)}</span> : null}
-        </p>
+        <PreviewStatus
+          isEmpty
+          isGenerating={isGenerating}
+          generationPhase={generationPhase}
+          generationSeconds={generationSeconds}
+          rateLimitWaitSeconds={rateLimitWaitSeconds}
+        />
       )}
     </section>
   );
 }
 
+function PreviewStatus({
+  isEmpty = false,
+  isGenerating = false,
+  generationPhase,
+  generationSeconds,
+  rateLimitWaitSeconds,
+}: {
+  isEmpty?: boolean;
+  isGenerating?: boolean;
+  generationPhase: "idle" | "waiting" | "generating";
+  generationSeconds: number;
+  rateLimitWaitSeconds: number;
+}) {
+  if (generationPhase === "waiting") {
+    return (
+      <p className={isEmpty ? "preview-empty" : "preview-status"}>
+        <span>等待请求窗口</span>
+        <span>{formatSeconds(rateLimitWaitSeconds)}</span>
+        <span>官方限制为 2 RPM，请求按约 30 秒间隔发送。</span>
+      </p>
+    );
+  }
+
+  if (generationPhase === "generating") {
+    return (
+      <p className={isEmpty ? "preview-empty" : "preview-status"}>
+        <span>生成中...</span>
+        <span>{formatSeconds(generationSeconds)}</span>
+      </p>
+    );
+  }
+
+  if (!isEmpty) {
+    return null;
+  }
+
+  return (
+    <p className="preview-empty">
+      <span>{isGenerating ? "生成中..." : "暂无图片"}</span>
+    </p>
+  );
+}
+
 function PreviewImage({ result }: { result: GeneratedImageResult }) {
   const { width, height } = getImageDimensions(result.size);
+
+  if (result.status === "blocked") {
+    return null;
+  }
 
   return (
     <Image
@@ -360,14 +423,20 @@ function HistoryItem({
 
   return (
     <button type="button" onClick={onClick} className="history-item">
-      <Image
-        src={result.imageUrl}
-        alt=""
-        width={width}
-        height={height}
-        unoptimized
-        className="history-image"
-      />
+      {result.status === "blocked" ? (
+        <span className="history-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+          请求被内容安全策略拦截屏蔽
+        </span>
+      ) : (
+        <Image
+          src={result.imageUrl}
+          alt=""
+          width={width}
+          height={height}
+          unoptimized
+          className="history-image"
+        />
+      )}
     </button>
   );
 }
@@ -405,16 +474,28 @@ function Lightbox({
       </button>
       <div className="lightbox-layout">
         <div className="lightbox-image-wrap">
-          <Image
-            src={result.imageUrl}
-            alt={result.prompt}
-            width={width}
-            height={height}
-            unoptimized
-            className="lightbox-image"
-          />
+          {result.status === "blocked" ? (
+            <div className="lightbox-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+              <span>已屏蔽</span>
+              <span>{result.errorMessage ?? "内容安全策略未允许生成这张图片。"}</span>
+            </div>
+          ) : (
+            <Image
+              src={result.imageUrl}
+              alt={result.prompt}
+              width={width}
+              height={height}
+              unoptimized
+              className="lightbox-image"
+            />
+          )}
         </div>
         <aside className="lightbox-meta">
+          {result.status === "blocked" ? (
+            <p className="lightbox-error">
+              {result.errorMessage ?? "内容安全策略未允许生成这张图片。"}
+            </p>
+          ) : null}
           <p className="lightbox-prompt">
             {result.prompt}
           </p>
@@ -423,6 +504,7 @@ function Lightbox({
             <span>{result.quality}</span>
             <span>{result.outputFormat}</span>
             <span>{result.createdAt}</span>
+            {result.errorCode ? <span>{result.errorCode}</span> : null}
           </div>
         </aside>
       </div>
