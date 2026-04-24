@@ -161,7 +161,7 @@ function PromptPanel() {
             <img
               src={referenceImage}
               alt=""
-              className="max-h-48 max-w-full rounded-xl object-contain shadow-[0_18px_48px_rgba(24,24,27,0.12)]"
+              className="max-h-48 max-w-full object-contain shadow-[0_18px_48px_rgba(24,24,27,0.12)]"
             />
           </button>
         ) : (
@@ -236,7 +236,7 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
       height={height}
       unoptimized
       priority
-      className="max-h-[72vh] max-w-full rounded-xl object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
+      className="max-h-[72vh] max-w-full object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
     />
   );
 }
@@ -279,11 +279,11 @@ function HistoryPanel() {
   return (
     <section>
       <div
-        className="grid items-start gap-4"
+        className="grid items-start gap-1.5"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {distributedHistory.map((column, columnIndex) => (
-          <div key={columnIndex} className="flex flex-col gap-4">
+          <div key={columnIndex} className="flex flex-col gap-1.5">
             {column.map((result) => (
               <HistoryItem
                 key={result.id}
@@ -331,7 +331,7 @@ function HistoryItem({
         width={width}
         height={height}
         unoptimized
-        className="h-auto w-full rounded-xl object-cover shadow-[0_16px_42px_rgba(24,24,27,0.10)] transition hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(24,24,27,0.16)]"
+        className="h-auto w-full object-cover shadow-[0_16px_42px_rgba(24,24,27,0.10)] transition hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(24,24,27,0.16)]"
       />
     </button>
   );
@@ -375,7 +375,7 @@ function Lightbox({
           width={width}
           height={height}
           unoptimized
-          className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
+          className="max-h-[90vh] max-w-full object-contain shadow-[0_28px_80px_rgba(24,24,27,0.16)]"
         />
       </div>
       <aside className="mt-6 flex flex-col gap-3 text-sm leading-6 text-zinc-700 lg:mt-0 lg:justify-center">
