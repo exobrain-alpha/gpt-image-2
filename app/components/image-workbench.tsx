@@ -45,7 +45,10 @@ function PromptPanel() {
     applyTag,
     addTag,
     generateImage,
+    startAutoGeneration,
+    stopAutoGeneration,
     isGenerating,
+    isAutoGenerating,
     error,
   } = useImageState();
   const [newTag, setNewTag] = useState("");
@@ -188,14 +191,34 @@ function PromptPanel() {
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      <button
-        type="button"
-        onClick={generateImage}
-        disabled={isGenerating || prompt.trim().length < 2}
-        className="generate-command"
-      >
-        {isGenerating ? "生成中..." : "生成图片"}
-      </button>
+      <div className="generation-actions">
+        <button
+          type="button"
+          onClick={generateImage}
+          disabled={isGenerating || prompt.trim().length < 2}
+          className="generate-command"
+        >
+          {isGenerating ? "生成中..." : "生成图片"}
+        </button>
+        {isAutoGenerating ? (
+          <button
+            type="button"
+            onClick={stopAutoGeneration}
+            className="stop-command"
+          >
+            停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={startAutoGeneration}
+            disabled={isGenerating || prompt.trim().length < 2}
+            className="auto-command"
+          >
+            持续生成
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -221,7 +244,7 @@ function TagButton({
 }
 
 function PreviewPanel() {
-  const { activeResult, isGenerating } = useImageState();
+  const { activeResult, isGenerating, generationSeconds } = useImageState();
 
   return (
     <section className="preview-zone">
@@ -229,7 +252,8 @@ function PreviewPanel() {
         <PreviewImage result={activeResult} />
       ) : (
         <p className="preview-empty">
-          {isGenerating ? "生成中..." : "暂无图片"}
+          <span>{isGenerating ? "生成中..." : "暂无图片"}</span>
+          {isGenerating ? <span>{formatSeconds(generationSeconds)}</span> : null}
         </p>
       )}
     </section>
@@ -430,6 +454,16 @@ function getImageDimensions(size: ImageSize) {
 
 function formatSizeLabel(size: ImageSize) {
   return size.replace("x", " x ");
+}
+
+function formatSeconds(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+
+  return [hours, minutes, remainingSeconds]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
 }
 
 function qualityLabel(quality: ImageQuality) {

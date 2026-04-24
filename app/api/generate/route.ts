@@ -18,6 +18,10 @@ type AzureImageResponse = {
   error?: {
     code?: string;
     message?: string;
+    type?: string;
+    inner_error?: {
+      code?: string;
+    };
   };
 };
 
@@ -97,18 +101,26 @@ export async function POST(request: Request) {
     | null;
 
   if (!response.ok || responseBody?.error) {
-    const azureMessage = responseBody?.error?.message;
+    const friendlyError = getFriendlyAzureError(
+      response.status,
+      responseBody?.error,
+      deployment,
+      endpointKind,
+      apiVersion,
+    );
     const azureCode = responseBody?.error?.code;
     const deploymentNotFound =
       response.status === 404 ||
       azureCode === "DeploymentNotFound";
+
     return NextResponse.json(
       {
-        error: deploymentNotFound
-          ? `找不到 Azure OpenAI deployment：${deployment}。当前使用 ${endpointKind} endpoint，api-version=${apiVersion}。Azure 原始错误：${azureCode ?? response.status} ${azureMessage ?? ""}`
-          : azureMessage ?? `生成失败，Azure 返回 HTTP ${response.status}`,
+        error: friendlyError,
+        code: responseBody?.error?.code,
+        type: responseBody?.error?.type,
+        innerCode: responseBody?.error?.inner_error?.code,
       },
-      { status: response.ok ? 502 : response.status },
+      { status: deploymentNotFound ? 404 : response.ok ? 502 : response.status },
     );
   }
 
@@ -167,6 +179,9 @@ async function buildImageResult(
   const outputUrl = `/api/outputs/${encodeURIComponent(fileName)}`;
   const imageBuffer = Buffer.from(b64Json, "base64");
   const createdAt = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -192,8 +207,10 @@ async function buildImageResult(
     `${JSON.stringify(
       {
         ...result,
+        usedPrompt: payload.prompt,
         request: {
           prompt: payload.prompt,
+          usedPrompt: payload.prompt,
           size: payload.size,
           quality: payload.quality,
           outputFormat: payload.outputFormat,
@@ -231,7 +248,7 @@ async function readAndValidateRequest(request: Request): Promise<
     return { ok: false, error: "Prompt 不能超过 4000 个字符。" };
   }
 
-  const size = pickOption(body.size, imageSizes, "1024x1024");
+  const size = pickOption(body.size, imageSizes, "720x1024");
   const quality = pickOption(body.quality, imageQualities, "medium");
   const outputFormat = pickOption(body.outputFormat, imageFormats, "png");
   const background = pickOption(body.background, backgroundModes, "auto");
@@ -258,6 +275,50 @@ function pickOption<T extends string>(
   fallback: T,
 ) {
   return options.includes(value as T) ? (value as T) : fallback;
+}
+
+function getFriendlyAzureError(
+  status: number,
+  error: AzureImageResponse["error"],
+  deployment: string,
+  endpointKind: string,
+  apiVersion: string,
+) {
+  const code = error?.code ?? "";
+  const innerCode = error?.inner_error?.code ?? "";
+  const message = error?.message ?? "";
+  const normalized = `${code} ${innerCode} ${message}`.toLowerCase();
+
+  if (
+    status === 404 ||
+    code === "DeploymentNotFound"
+  ) {
+    return `找不到 Azure OpenAI deployment：${deployment}。当前使用 ${endpointKind} endpoint，api-version=${apiVersion}。请检查 deployment 名称、endpoint 类型和 API 版本。`;
+  }
+
+  if (
+    normalized.includes("content_policy_violation") ||
+    normalized.includes("responsibleaipolicyviolation") ||
+    normalized.includes("content filter") ||
+    normalized.includes("content_filter") ||
+    normalized.includes("safety system")
+  ) {
+    return "这次请求被内容安全策略拦截。请调整 prompt，避免包含可能触发安全限制、受保护人物/风格、露骨、暴力或其他敏感内容的描述后再试。";
+  }
+
+  if (status === 401 || status === 403) {
+    return "Azure 鉴权失败。请检查 API Key、endpoint 和当前资源权限。";
+  }
+
+  if (status === 429) {
+    return "请求过于频繁或额度暂时不足。请稍后再试，或降低持续生成频率。";
+  }
+
+  if (status >= 500) {
+    return "Azure 服务暂时不可用或返回异常。请稍后重试。";
+  }
+
+  return message || `生成失败，Azure 返回 HTTP ${status}`;
 }
 
 function formatDateForFileName(date: Date) {

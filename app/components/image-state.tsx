@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -30,6 +31,8 @@ type ImageContextValue = {
   tags: string[];
   activeTags: string[];
   isGenerating: boolean;
+  isAutoGenerating: boolean;
+  generationSeconds: number;
   error: string | null;
   setPrompt: (value: string) => void;
   setSize: (value: ImageSize) => void;
@@ -40,6 +43,8 @@ type ImageContextValue = {
   applyTag: (tag: string) => void;
   addTag: (tag: string) => Promise<void>;
   generateImage: () => Promise<void>;
+  startAutoGeneration: () => void;
+  stopAutoGeneration: () => void;
   selectResult: (result: GeneratedImageResult) => void;
   clearHistory: () => void;
 };
@@ -48,7 +53,7 @@ const ImageContext = createContext<ImageContextValue | null>(null);
 
 export function ImageProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState<ImageSize>("1024x1024");
+  const [size, setSize] = useState<ImageSize>("720x1024");
   const [quality, setQuality] = useState<ImageQuality>("medium");
   const [outputFormat, setOutputFormat] = useState<ImageFormat>("png");
   const [background, setBackground] = useState<BackgroundMode>("auto");
@@ -59,7 +64,40 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   const [tags, setTags] = useState<string[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [generationSeconds, setGenerationSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const isGeneratingRef = useRef(false);
+  const isAutoGeneratingRef = useRef(false);
+  const isAutoLoopRunningRef = useRef(false);
+  const requestRef = useRef({
+    prompt,
+    size,
+    quality,
+    outputFormat,
+  });
+
+  useEffect(() => {
+    requestRef.current = {
+      prompt,
+      size,
+      quality,
+      outputFormat,
+    };
+  }, [outputFormat, prompt, quality, size]);
+
+  useEffect(() => {
+    if (!isGenerating) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setGenerationSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [isGenerating]);
 
   useEffect(() => {
     let isMounted = true;
@@ -150,13 +188,16 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const generateImage = useCallback(async () => {
-    const normalized = prompt.trim();
+  const runGeneration = useCallback(async () => {
+    const { prompt: currentPrompt, size, quality, outputFormat } = requestRef.current;
+    const normalized = currentPrompt.trim();
 
-    if (!normalized || isGenerating) {
+    if (!normalized || isGeneratingRef.current) {
       return;
     }
 
+    isGeneratingRef.current = true;
+    setGenerationSeconds(0);
     setIsGenerating(true);
     setError(null);
 
@@ -192,9 +233,50 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "生成失败。");
     } finally {
+      isGeneratingRef.current = false;
       setIsGenerating(false);
     }
-  }, [isGenerating, outputFormat, prompt, quality, size]);
+  }, []);
+
+  const generateImage = useCallback(async () => {
+    await runGeneration();
+  }, [runGeneration]);
+
+  const runAutoGeneration = useCallback(async () => {
+    if (isAutoLoopRunningRef.current) {
+      return;
+    }
+
+    isAutoLoopRunningRef.current = true;
+
+    while (isAutoGeneratingRef.current) {
+      await runGeneration();
+
+      if (isAutoGeneratingRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+
+    isAutoLoopRunningRef.current = false;
+  }, [runGeneration]);
+
+  const startAutoGeneration = useCallback(() => {
+    if (
+      requestRef.current.prompt.trim().length < 2 ||
+      isGeneratingRef.current
+    ) {
+      return;
+    }
+
+    isAutoGeneratingRef.current = true;
+    setIsAutoGenerating(true);
+    void runAutoGeneration();
+  }, [runAutoGeneration]);
+
+  const stopAutoGeneration = useCallback(() => {
+    isAutoGeneratingRef.current = false;
+    setIsAutoGenerating(false);
+  }, []);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -214,6 +296,8 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       tags,
       activeTags,
       isGenerating,
+      isAutoGenerating,
+      generationSeconds,
       error,
       setPrompt,
       setSize,
@@ -224,6 +308,8 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       applyTag,
       addTag,
       generateImage,
+      startAutoGeneration,
+      stopAutoGeneration,
       selectResult: setActiveResult,
       clearHistory,
     }),
@@ -236,13 +322,17 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       clearHistory,
       error,
       generateImage,
+      generationSeconds,
       history,
+      isAutoGenerating,
       isGenerating,
       outputFormat,
       prompt,
       quality,
       referenceImage,
       size,
+      startAutoGeneration,
+      stopAutoGeneration,
       tags,
     ],
   );
