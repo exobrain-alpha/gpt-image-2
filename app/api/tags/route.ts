@@ -38,6 +38,25 @@ export async function POST(request: Request) {
   return NextResponse.json({ tags: nextTags });
 }
 
+export async function DELETE(request: Request) {
+  const body = (await request.json().catch(() => null)) as
+    | { tag?: unknown }
+    | null;
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+
+  if (!tag) {
+    return NextResponse.json({ error: "Tag is required." }, { status: 400 });
+  }
+
+  const tags = await readTags();
+  const nextTags = tags.filter((currentTag) => currentTag !== tag);
+
+  await mkdir(path.dirname(tagFilePath), { recursive: true });
+  await writeFile(tagFilePath, `${JSON.stringify(nextTags, null, 2)}\n`);
+
+  return NextResponse.json({ tags: nextTags });
+}
+
 async function readTags() {
   const content = await readFile(tagFilePath, "utf8").catch(() => "[]");
   const parsed = JSON.parse(content) as unknown;

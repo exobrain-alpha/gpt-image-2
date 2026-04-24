@@ -44,6 +44,7 @@ function PromptPanel() {
     activeTags,
     applyTag,
     addTag,
+    deleteTag,
     generateImage,
     startAutoGeneration,
     stopAutoGeneration,
@@ -53,6 +54,7 @@ function PromptPanel() {
   } = useImageState();
   const [newTag, setNewTag] = useState("");
   const [isDraggingReference, setIsDraggingReference] = useState(false);
+  const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const applyReferenceFile = (file: File | undefined) => {
     if (!file?.type.startsWith("image/")) {
@@ -104,13 +106,14 @@ function PromptPanel() {
           </TagButton>
         ))}
         {tags.map((tag) => (
-          <TagButton
+          <DeletableTag
             key={tag}
             active={activeTags.includes(tag)}
             onClick={() => applyTag(tag)}
+            onDelete={() => setTagPendingDelete(tag)}
           >
             {tag}
-          </TagButton>
+          </DeletableTag>
         ))}
       </div>
 
@@ -189,6 +192,20 @@ function PromptPanel() {
         ) : null}
       </div>
 
+      {tagPendingDelete ? (
+        <ConfirmDialog
+          title="删除标签"
+          message={`删除「${tagPendingDelete}」？`}
+          confirmText="删除"
+          cancelText="取消"
+          onCancel={() => setTagPendingDelete(null)}
+          onConfirm={() => {
+            void deleteTag(tagPendingDelete);
+            setTagPendingDelete(null);
+          }}
+        />
+      ) : null}
+
       {error ? <p className="error-text">{error}</p> : null}
 
       <div className="generation-actions">
@@ -223,6 +240,57 @@ function PromptPanel() {
   );
 }
 
+function ConfirmDialog({
+  title,
+  message,
+  confirmText,
+  cancelText,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmText: string;
+  cancelText: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div className="confirm-layer" role="presentation" onClick={onCancel}>
+      <section
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="confirm-title">{title}</h2>
+        <p>{message}</p>
+        <div className="confirm-actions">
+          <button type="button" className="confirm-cancel" onClick={onCancel}>
+            {cancelText}
+          </button>
+          <button type="button" className="confirm-danger" onClick={onConfirm}>
+            {confirmText}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TagButton({
   active,
   onClick,
@@ -243,6 +311,44 @@ function TagButton({
   );
 }
 
+function DeletableTag({
+  active,
+  canDelete = true,
+  onClick,
+  onDelete,
+  children,
+}: {
+  active: boolean;
+  canDelete?: boolean;
+  onClick: () => void;
+  onDelete: () => void;
+  children: ReactNode;
+}) {
+  if (!canDelete) {
+    return (
+      <TagButton active={active} onClick={onClick}>
+        {children}
+      </TagButton>
+    );
+  }
+
+  return (
+    <span className={`tag-pill ${active ? "tag-pill-active" : ""}`}>
+      <button type="button" onClick={onClick} className="tag-pill-main">
+        {children}
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="tag-pill-delete"
+        aria-label="删除"
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 function PreviewPanel() {
   const {
     activeResult,
@@ -255,14 +361,14 @@ function PreviewPanel() {
   return (
     <section className="preview-zone">
       {activeResult ? (
-        <>
+        <div className="preview-stack">
           <PreviewImage result={activeResult} />
           <PreviewStatus
             generationPhase={generationPhase}
             generationSeconds={generationSeconds}
             rateLimitWaitSeconds={rateLimitWaitSeconds}
           />
-        </>
+        </div>
       ) : (
         <PreviewStatus
           isEmpty
@@ -537,6 +643,7 @@ function getImageDimensions(size: ImageSize) {
 function formatSizeLabel(size: ImageSize) {
   return size.replace("x", " x ");
 }
+
 
 function formatSeconds(seconds: number) {
   const hours = Math.floor(seconds / 3600);

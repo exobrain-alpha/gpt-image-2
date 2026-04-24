@@ -51,6 +51,7 @@ type ImageContextValue = {
   setReferenceImage: (value: string | null) => void;
   applyTag: (tag: string) => void;
   addTag: (tag: string) => Promise<void>;
+  deleteTag: (tag: string) => Promise<void>;
   generateImage: () => Promise<void>;
   startAutoGeneration: () => void;
   stopAutoGeneration: () => void;
@@ -184,9 +185,11 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     }
 
     setTags(data.tags);
-    setActiveTags((current) =>
-      current.includes(normalized) ? current : [...current, normalized],
-    );
+    setActiveTags((current) => {
+      const next = current.includes(normalized) ? current : [...current, normalized];
+
+      return next;
+    });
     setPrompt((current) => {
       const normalizedPrompt = current.trim();
 
@@ -200,6 +203,30 @@ export function ImageProvider({ children }: { children: ReactNode }) {
 
       return `${normalizedPrompt}，${normalized}`;
     });
+  }, []);
+
+  const deleteTag = useCallback(async (tag: string) => {
+    const normalized = tag.trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    const response = await fetch("/api/tags", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag: normalized }),
+    });
+    const data = (await response.json()) as { tags?: string[]; error?: string };
+
+    if (!response.ok || !Array.isArray(data.tags)) {
+      throw new Error(data.error ?? "删除常用词失败。");
+    }
+
+    setTags(data.tags);
+    setActiveTags((current) =>
+      current.filter((activeTag) => activeTag !== normalized),
+    );
   }, []);
 
   const waitForRateLimit = useCallback(async (cancelWhenStopped: boolean) => {
@@ -388,6 +415,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       setReferenceImage,
       applyTag,
       addTag,
+      deleteTag,
       generateImage,
       startAutoGeneration,
       stopAutoGeneration,
@@ -401,6 +429,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       addTag,
       background,
       clearHistory,
+      deleteTag,
       error,
       generateImage,
       generationPhase,
