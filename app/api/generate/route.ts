@@ -29,11 +29,7 @@ type GenerationContext = {
 
 const defaultApiVersion = "2025-04-01-preview";
 const defaultDeployment = "gpt-image-2";
-const generatedDirectory = path.join(
-  process.cwd(),
-  "public",
-  "generated-images",
-);
+const outputDirectory = path.join(process.cwd(), "outputs");
 
 export async function POST(request: Request) {
   const validation = await readAndValidateRequest(request);
@@ -160,14 +156,15 @@ async function buildImageResult(
   payload: GenerateImageRequest,
   context: GenerationContext,
 ) {
-  await mkdir(generatedDirectory, { recursive: true });
+  await mkdir(outputDirectory, { recursive: true });
 
-  const id = `${Date.now()}-${index}`;
+  const timestamp = Date.now();
+  const id = `${formatDateForFileName(new Date(timestamp))}-${timestamp}-${index}`;
   const fileName = `${id}.${payload.outputFormat}`;
   const metadataFileName = `${id}.json`;
-  const diskPath = path.join(generatedDirectory, fileName);
-  const metadataPath = path.join(generatedDirectory, metadataFileName);
-  const publicPath = `/generated-images/${fileName}`;
+  const diskPath = path.join(outputDirectory, fileName);
+  const metadataPath = path.join(outputDirectory, metadataFileName);
+  const outputUrl = `/api/outputs/${encodeURIComponent(fileName)}`;
   const imageBuffer = Buffer.from(b64Json, "base64");
   const createdAt = new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -180,7 +177,7 @@ async function buildImageResult(
   const result = {
     id,
     prompt: payload.prompt,
-    imageUrl: publicPath,
+    imageUrl: outputUrl,
     filePath: diskPath,
     metadataPath,
     size: payload.size,
@@ -261,4 +258,12 @@ function pickOption<T extends string>(
   fallback: T,
 ) {
   return options.includes(value as T) ? (value as T) : fallback;
+}
+
+function formatDateForFileName(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
