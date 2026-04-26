@@ -616,6 +616,14 @@ button:disabled {
   background: transparent;
 }
 
+.history-item[draggable="true"] {
+  cursor: grab;
+}
+
+.history-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .history-image {
   width: 100%;
   height: auto;

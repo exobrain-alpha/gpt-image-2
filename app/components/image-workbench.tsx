@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import {
   imageFormats,
   imageQualities,
@@ -11,6 +18,8 @@ import {
   type ImageSize,
 } from "@/lib/image-options";
 import { ImageProvider, useImageState } from "./image-state";
+
+const historyDragDataType = "application/x-gpt-image-history";
 
 export function ImageWorkbench() {
   return (
@@ -54,14 +63,42 @@ function PromptPanel() {
   } = useImageState();
   const [newTag, setNewTag] = useState("");
   const [isDraggingReference, setIsDraggingReference] = useState(false);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
   const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const applyReferenceFile = (file: File | undefined) => {
     if (!file?.type.startsWith("image/")) {
+      setReferenceError("参考图必须是图片文件。");
       return;
     }
 
+    setReferenceError(null);
     setReferenceImage(file);
+  };
+  const applyReferenceDrop = async (event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setIsDraggingReference(false);
+
+    const droppedFile = event.dataTransfer.files[0];
+
+    if (droppedFile) {
+      applyReferenceFile(droppedFile);
+      return;
+    }
+
+    const draggedHistoryImage = readDraggedHistoryImage(event.dataTransfer);
+
+    if (!draggedHistoryImage) {
+      return;
+    }
+
+    try {
+      const file = await fetchHistoryImageFile(draggedHistoryImage);
+
+      applyReferenceFile(file);
+    } catch {
+      setReferenceError("无法读取历史图片，请稍后重试。");
+    }
   };
 
   return (
@@ -166,9 +203,7 @@ function PromptPanel() {
             }
           }}
           onDrop={(event) => {
-            event.preventDefault();
-            setIsDraggingReference(false);
-            applyReferenceFile(event.dataTransfer.files[0]);
+            void applyReferenceDrop(event);
           }}
           className={`reference-dropzone ${
             isDraggingReference ? "reference-dropzone-active" : ""
@@ -206,7 +241,9 @@ function PromptPanel() {
         />
       ) : null}
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {error || referenceError ? (
+        <p className="error-text">{error ?? referenceError}</p>
+      ) : null}
 
       <div className="generation-actions">
         <button
@@ -526,9 +563,20 @@ function HistoryItem({
   onClick: () => void;
 }) {
   const { width, height } = getImageDimensions(result.size);
+  const canDrag = result.status !== "blocked";
 
   return (
-    <button type="button" onClick={onClick} className="history-item">
+    <button
+      type="button"
+      onClick={onClick}
+      draggable={canDrag}
+      onDragStart={(event) => {
+        if (canDrag) {
+          writeDraggedHistoryImage(event.dataTransfer, result);
+        }
+      }}
+      className="history-item"
+    >
       {result.status === "blocked" ? (
         <span className="history-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
           请求被内容安全策略拦截屏蔽
@@ -545,6 +593,72 @@ function HistoryItem({
       )}
     </button>
   );
+}
+
+type DraggedHistoryImage = {
+  imageUrl: string;
+  fileName: string;
+};
+
+function writeDraggedHistoryImage(
+  dataTransfer: DataTransfer,
+  result: GeneratedImageResult,
+) {
+  const fileName = `${result.id}.${result.outputFormat}`;
+  const data = JSON.stringify({
+    imageUrl: result.imageUrl,
+    fileName,
+  } satisfies DraggedHistoryImage);
+
+  dataTransfer.effectAllowed = "copy";
+  dataTransfer.setData(historyDragDataType, data);
+  dataTransfer.setData("text/uri-list", result.imageUrl);
+}
+
+function readDraggedHistoryImage(dataTransfer: DataTransfer) {
+  const data = dataTransfer.getData(historyDragDataType);
+
+  if (!data) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(data) as Partial<DraggedHistoryImage>;
+
+    if (typeof parsed.imageUrl !== "string" || typeof parsed.fileName !== "string") {
+      return null;
+    }
+
+    return {
+      imageUrl: parsed.imageUrl,
+      fileName: parsed.fileName,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchHistoryImageFile({
+  imageUrl,
+  fileName,
+}: DraggedHistoryImage) {
+  const response = await fetch(imageUrl);
+
+  if (!response.ok) {
+    throw new Error("Failed to load history image.");
+  }
+
+  const blob = await response.blob();
+  const contentType = blob.type || getImageContentType(fileName);
+
+  return new File([blob], fileName, { type: contentType });
+}
+
+function getImageContentType(fileName: string) {
+  return fileName.toLowerCase().endsWith(".jpeg") ||
+    fileName.toLowerCase().endsWith(".jpg")
+    ? "image/jpeg"
+    : "image/png";
 }
 
 function Lightbox({
