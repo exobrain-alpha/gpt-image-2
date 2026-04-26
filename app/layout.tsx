@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GPT-Image-2 Local Studio",
-  description: "A local text-to-image workspace for GPT-Image-2 prompts.",
+  title: "GPT-IMAGE-2",
+  description:
+    "A Microsoft Azure OpenAI Service image generation application built with Next.js 16 and TypeScript.",
 };
 
 export default function RootLayout({
