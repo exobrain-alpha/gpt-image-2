@@ -29,11 +29,38 @@ type GenerationContext = {
   apiVersion: string;
   deployment: string;
   endpointKind: string;
+  operation: "generation" | "edit";
+  referenceImage?: {
+    fileName: string;
+    contentType: string;
+    size: number;
+  };
+};
+
+type ReferenceImageInput = {
+  file: File;
+  fileName: string;
+  contentType: string;
+  size: number;
+};
+
+type ValidatedGenerateRequest = {
+  payload: GenerateImageRequest;
+  referenceImage?: ReferenceImageInput;
+};
+
+type ImageRequestInput = {
+  prompt?: unknown;
+  size?: unknown;
+  quality?: unknown;
+  outputFormat?: unknown;
+  background?: unknown;
 };
 
 const defaultApiVersion = "2025-04-01-preview";
 const defaultDeployment = "gpt-image-2";
 const outputDirectory = path.join(process.cwd(), "outputs");
+const maxReferenceImageBytes = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const validation = await readAndValidateRequest(request);
@@ -61,28 +88,23 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = validation.value;
-  const url = buildGenerationUrl(endpoint, deployment, apiVersion);
+  const { payload, referenceImage } = validation.value;
+  const operation = referenceImage ? "edit" : "generation";
+  const url = referenceImage
+    ? buildEditUrl(endpoint, deployment, apiVersion)
+    : buildGenerationUrl(endpoint, deployment, apiVersion);
   const endpointKind = endpoint.includes(".services.ai.azure.com")
     ? "services.ai.azure.com"
     : "openai.azure.com";
   let response: Response;
 
   try {
+    const azureRequest = buildAzureImageRequest(payload, apiKey, referenceImage);
+
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Api-Key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prompt: payload.prompt,
-        n: 1,
-        size: payload.size,
-        quality: payload.quality,
-        output_format: payload.outputFormat,
-        background: payload.background,
-      }),
+      headers: azureRequest.headers,
+      body: azureRequest.body,
     });
   } catch (error) {
     return NextResponse.json(
@@ -132,6 +154,14 @@ export async function POST(request: Request) {
               apiVersion,
               deployment,
               endpointKind,
+              operation,
+              referenceImage: referenceImage
+                ? {
+                    fileName: referenceImage.fileName,
+                    contentType: referenceImage.contentType,
+                    size: referenceImage.size,
+                  }
+                : undefined,
             }),
           ]
         : [],
@@ -160,6 +190,56 @@ function buildGenerationUrl(
   return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
     deployment,
   )}/images/generations?api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+function buildEditUrl(endpoint: string, deployment: string, apiVersion: string) {
+  const normalizedEndpoint = endpoint.endsWith("/")
+    ? endpoint
+    : `${endpoint}/`;
+
+  return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
+    deployment,
+  )}/images/edits?api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+function buildAzureImageRequest(
+  payload: GenerateImageRequest,
+  apiKey: string,
+  referenceImage?: ReferenceImageInput,
+): { headers: HeadersInit; body: BodyInit } {
+  if (referenceImage) {
+    const formData = new FormData();
+
+    formData.set("image", referenceImage.file, referenceImage.fileName);
+    formData.set("prompt", payload.prompt);
+    formData.set("n", "1");
+    formData.set("size", payload.size);
+    formData.set("quality", payload.quality);
+    formData.set("output_format", payload.outputFormat);
+    formData.set("background", payload.background ?? "auto");
+
+    return {
+      headers: {
+        "Api-Key": apiKey,
+      },
+      body: formData,
+    };
+  }
+
+  return {
+    headers: {
+      "Api-Key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt: payload.prompt,
+      n: 1,
+      size: payload.size,
+      quality: payload.quality,
+      output_format: payload.outputFormat,
+      background: payload.background,
+    }),
+  };
 }
 
 async function buildImageResult(
@@ -227,13 +307,85 @@ async function buildImageResult(
 }
 
 async function readAndValidateRequest(request: Request): Promise<
-  | { ok: true; value: GenerateImageRequest }
+  | { ok: true; value: ValidatedGenerateRequest }
   | { ok: false; error: string }
 > {
-  const body = (await request.json().catch(() => null)) as Partial<
-    GenerateImageRequest
-  > | null;
+  if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+    return readAndValidateMultipartRequest(request);
+  }
 
+  const body = (await request.json().catch(() => null)) as
+    | ImageRequestInput
+    | null;
+
+  const validation = validateImageRequestBody(body);
+
+  if (!validation.ok) {
+    return validation;
+  }
+
+  return {
+    ok: true,
+    value: {
+      payload: validation.value,
+    },
+  };
+}
+
+async function readAndValidateMultipartRequest(request: Request): Promise<
+  | { ok: true; value: ValidatedGenerateRequest }
+  | { ok: false; error: string }
+> {
+  const formData = await request.formData().catch(() => null);
+
+  if (!formData) {
+    return { ok: false, error: "请输入有效的表单数据。" };
+  }
+
+  const body = {
+    prompt: getStringFormValue(formData, "prompt"),
+    size: getStringFormValue(formData, "size"),
+    quality: getStringFormValue(formData, "quality"),
+    outputFormat: getStringFormValue(formData, "outputFormat"),
+    background: getStringFormValue(formData, "background"),
+  };
+  const validation = validateImageRequestBody(body);
+
+  if (!validation.ok) {
+    return validation;
+  }
+
+  const referenceImage = formData.get("referenceImage");
+
+  if (!isFileLike(referenceImage) || referenceImage.size === 0) {
+    return { ok: false, error: "请上传有效的参考图。" };
+  }
+
+  if (!referenceImage.type.startsWith("image/")) {
+    return { ok: false, error: "参考图必须是图片文件。" };
+  }
+
+  if (referenceImage.size > maxReferenceImageBytes) {
+    return { ok: false, error: "参考图不能超过 25MB。" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      payload: validation.value,
+      referenceImage: {
+        file: referenceImage,
+        fileName: referenceImage.name || "reference-image",
+        contentType: referenceImage.type,
+        size: referenceImage.size,
+      },
+    },
+  };
+}
+
+function validateImageRequestBody(
+  body: ImageRequestInput | null,
+): { ok: true; value: GenerateImageRequest } | { ok: false; error: string } {
   if (!body || typeof body.prompt !== "string") {
     return { ok: false, error: "请输入有效的 prompt。" };
   }
@@ -267,6 +419,16 @@ async function readAndValidateRequest(request: Request): Promise<
       background,
     },
   };
+}
+
+function getStringFormValue(formData: FormData, name: string) {
+  const value = formData.get(name);
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function isFileLike(value: FormDataEntryValue | null): value is File {
+  return value instanceof File;
 }
 
 function pickOption<T extends string>(

@@ -61,7 +61,7 @@ function PromptPanel() {
       return;
     }
 
-    setReferenceImage(URL.createObjectURL(file));
+    setReferenceImage(file);
   };
 
   return (

@@ -48,7 +48,7 @@ type ImageContextValue = {
   setQuality: (value: ImageQuality) => void;
   setOutputFormat: (value: ImageFormat) => void;
   setBackground: (value: BackgroundMode) => void;
-  setReferenceImage: (value: string | null) => void;
+  setReferenceImage: (value: File | null) => void;
   applyTag: (tag: string) => void;
   addTag: (tag: string) => Promise<void>;
   deleteTag: (tag: string) => Promise<void>;
@@ -68,7 +68,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   const [quality, setQuality] = useState<ImageQuality>("medium");
   const [outputFormat, setOutputFormat] = useState<ImageFormat>("png");
   const [background, setBackground] = useState<BackgroundMode>("auto");
-  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [referenceImage, setReferenceImagePreview] = useState<string | null>(null);
   const [history, setHistory] = useState<GeneratedImageResult[]>([]);
   const [activeResult, setActiveResult] =
     useState<GeneratedImageResult | null>(null);
@@ -81,6 +81,8 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   const [generationSeconds, setGenerationSeconds] = useState(0);
   const [rateLimitWaitSeconds, setRateLimitWaitSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const referenceImageFileRef = useRef<File | null>(null);
+  const referenceImagePreviewRef = useRef<string | null>(null);
   const isGeneratingRef = useRef(false);
   const isAutoGeneratingRef = useRef(false);
   const isAutoLoopRunningRef = useRef(false);
@@ -90,6 +92,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     size,
     quality,
     outputFormat,
+    background,
   });
 
   useEffect(() => {
@@ -98,8 +101,35 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       size,
       quality,
       outputFormat,
+      background,
     };
-  }, [outputFormat, prompt, quality, size]);
+  }, [background, outputFormat, prompt, quality, size]);
+
+  useEffect(() => {
+    return () => {
+      if (referenceImagePreviewRef.current) {
+        URL.revokeObjectURL(referenceImagePreviewRef.current);
+      }
+    };
+  }, []);
+
+  const setReferenceImage = useCallback((file: File | null) => {
+    if (referenceImagePreviewRef.current) {
+      URL.revokeObjectURL(referenceImagePreviewRef.current);
+      referenceImagePreviewRef.current = null;
+    }
+
+    referenceImageFileRef.current = file;
+
+    if (!file) {
+      setReferenceImagePreview(null);
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    referenceImagePreviewRef.current = previewUrl;
+    setReferenceImagePreview(previewUrl);
+  }, []);
 
   useEffect(() => {
     if (generationPhase !== "generating") {
@@ -281,7 +311,9 @@ export function ImageProvider({ children }: { children: ReactNode }) {
         size,
         quality,
         outputFormat,
+        background,
       } = requestRef.current;
+      const referenceImageFile = referenceImageFileRef.current;
       const normalized = currentPrompt.trim();
 
       if (!normalized) {
@@ -292,15 +324,29 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       setGenerationSeconds(0);
       lastRequestStartedAtRef.current = Date.now();
 
+      const requestBody = referenceImageFile
+        ? buildReferenceImageRequestBody({
+            prompt: normalized,
+            size,
+            quality,
+            outputFormat,
+            background,
+            referenceImageFile,
+          })
+        : JSON.stringify({
+            prompt: normalized,
+            size,
+            quality,
+            outputFormat,
+            background,
+          });
+
       const response = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: normalized,
-          size,
-          quality,
-          outputFormat,
-        }),
+        headers: referenceImageFile
+          ? undefined
+          : { "Content-Type": "application/json" },
+        body: requestBody,
       });
       const data = (await response.json()) as
         | GenerateImageResponse
@@ -316,6 +362,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
             size,
             quality,
             outputFormat,
+            background,
             message: message ?? "这次请求被内容安全策略拦截。",
             code: failure?.innerCode ?? failure?.code,
           });
@@ -442,6 +489,7 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       quality,
       referenceImage,
       rateLimitWaitSeconds,
+      setReferenceImage,
       size,
       startAutoGeneration,
       stopAutoGeneration,
@@ -492,6 +540,7 @@ function buildBlockedResult({
   size,
   quality,
   outputFormat,
+  background,
   message,
   code,
 }: {
@@ -499,6 +548,7 @@ function buildBlockedResult({
   size: ImageSize;
   quality: ImageQuality;
   outputFormat: ImageFormat;
+  background: BackgroundMode;
   message: string;
   code?: string;
 }): GeneratedImageResult {
@@ -511,7 +561,7 @@ function buildBlockedResult({
     size,
     quality,
     outputFormat,
-    background: "auto",
+    background,
     createdAt: new Intl.DateTimeFormat("zh-CN", {
       year: "numeric",
       month: "2-digit",
@@ -524,4 +574,31 @@ function buildBlockedResult({
     errorMessage: message,
     errorCode: code,
   };
+}
+
+function buildReferenceImageRequestBody({
+  prompt,
+  size,
+  quality,
+  outputFormat,
+  background,
+  referenceImageFile,
+}: {
+  prompt: string;
+  size: ImageSize;
+  quality: ImageQuality;
+  outputFormat: ImageFormat;
+  background: BackgroundMode;
+  referenceImageFile: File;
+}) {
+  const formData = new FormData();
+
+  formData.set("prompt", prompt);
+  formData.set("size", size);
+  formData.set("quality", quality);
+  formData.set("outputFormat", outputFormat);
+  formData.set("background", background);
+  formData.set("referenceImage", referenceImageFile, referenceImageFile.name);
+
+  return formData;
 }
