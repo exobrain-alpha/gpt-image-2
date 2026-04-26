@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GPT-Image-2 图像工作台
 
-## Getting Started
+一个基于 Next.js 的浏览器图像生成工作台，用于调用 Microsoft Foundry / Azure OpenAI 中部署的 GPT-Image-2。支持 prompt 生成、参考图编辑、历史图片预览，以及从历史列表拖拽图片作为新的参考图。
 
-First, run the development server:
+## 技术栈
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Azure OpenAI / Microsoft Foundry REST API
+
+## 环境变量
+
+复制 `.env.example` 为 `.env`，并填写你的 Foundry / Azure OpenAI 配置：
+
+```bash
+cp .env.example .env
+```
+
+主要配置项：
+
+```env
+AZURE_OPENAI_ENDPOINT=https://your-resource.services.ai.azure.com/
+AZURE_OPENAI_API_KEY=your-api-key
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+# AZURE_OPENAI_API_VERSION=2025-04-01-preview
+```
+
+`AZURE_OPENAI_ENDPOINT` 填资源的 base endpoint，不要填完整 Target URI。应用会自动拼接 `/openai/deployments/...` 路径。
+
+## 安装
+
+```bash
+npm install
+```
+
+## 开发启动
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+启动后打开终端输出的开发地址，通常是：
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```txt
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+如果 `3000` 端口已被占用，Next.js 会自动使用其他端口。
 
-## Learn More
+## 生产构建
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run build
+npm run start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 常用命令
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run lint
+npm run build
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+生成结果会保存到项目的 `outputs/` 目录，并通过 `/api/outputs/...` 在应用内展示。
