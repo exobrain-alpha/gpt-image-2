@@ -286,11 +286,14 @@ async function buildImageResult(
     metadataPath,
     `${JSON.stringify(
       {
-        ...result,
-        usedPrompt: payload.prompt,
-        request: {
-          prompt: payload.prompt,
-          usedPrompt: payload.prompt,
+        id,
+        createdAt,
+        prompt: payload.prompt,
+        image: {
+          fileName,
+          url: outputUrl,
+        },
+        options: {
           size: payload.size,
           quality: payload.quality,
           outputFormat: payload.outputFormat,
