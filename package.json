@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3639",
     "lint": "eslint",
     "package:dist": "node scripts/package-dist.mjs"
   },
