@@ -12,6 +12,7 @@ import {
 } from "react";
 import {
   type BackgroundMode,
+  defaultImageSize,
   type GeneratedImageResult,
   type GenerateImageResponse,
   type ImageFormat,
@@ -64,7 +65,7 @@ const minimumRequestIntervalMs = 30_000;
 
 export function ImageProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState<ImageSize>("720x1024");
+  const [size, setSize] = useState<ImageSize>(defaultImageSize);
   const [quality, setQuality] = useState<ImageQuality>("medium");
   const [outputFormat, setOutputFormat] = useState<ImageFormat>("png");
   const [background, setBackground] = useState<BackgroundMode>("auto");

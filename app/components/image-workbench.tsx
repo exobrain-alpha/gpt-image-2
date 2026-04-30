@@ -2,17 +2,21 @@
 
 import Image from "next/image";
 import {
+  type CSSProperties,
   useEffect,
   useMemo,
   useRef,
   useState,
   type DragEvent,
+  type RefObject,
   type ReactNode,
 } from "react";
 import {
+  buildImageSize,
+  getLegalHeightsForWidth,
+  getLegalWidthsForHeight,
   imageFormats,
   imageQualities,
-  imageSizes,
   type GeneratedImageResult,
   type ImageQuality,
   type ImageSize,
@@ -22,13 +26,36 @@ import { ImageProvider, useImageState } from "./image-state";
 const historyDragDataType = "application/x-gpt-image-history";
 
 export function ImageWorkbench() {
+  const promptPanelRef = useRef<HTMLElement | null>(null);
+  const [promptPanelHeight, setPromptPanelHeight] = useState(0);
+
+  useEffect(() => {
+    const promptPanel = promptPanelRef.current;
+
+    if (!promptPanel) {
+      return;
+    }
+
+    const updatePromptPanelHeight = () => {
+      setPromptPanelHeight(
+        Math.ceil(promptPanel.getBoundingClientRect().height),
+      );
+    };
+    const resizeObserver = new ResizeObserver(updatePromptPanelHeight);
+
+    updatePromptPanelHeight();
+    resizeObserver.observe(promptPanel);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   return (
     <ImageProvider>
       <main className="app-surface">
         <div className="workbench-shell">
           <div className="workbench-grid">
-            <PromptPanel />
-            <PreviewPanel />
+            <PromptPanel panelRef={promptPanelRef} />
+            <PreviewPanel promptPanelHeight={promptPanelHeight} />
           </div>
           <HistoryPanel />
         </div>
@@ -37,7 +64,11 @@ export function ImageWorkbench() {
   );
 }
 
-function PromptPanel() {
+function PromptPanel({
+  panelRef,
+}: {
+  panelRef: RefObject<HTMLElement | null>;
+}) {
   const {
     prompt,
     setPrompt,
@@ -59,6 +90,9 @@ function PromptPanel() {
     stopAutoGeneration,
     isGenerating,
     isAutoGenerating,
+    generationPhase,
+    generationSeconds,
+    rateLimitWaitSeconds,
     error,
   } = useImageState();
   const [newTag, setNewTag] = useState("");
@@ -66,6 +100,25 @@ function PromptPanel() {
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { width, height } = getImageDimensions(size);
+  const widthOptions = useMemo(() => getLegalWidthsForHeight(height), [height]);
+  const heightOptions = useMemo(() => getLegalHeightsForWidth(width), [width]);
+  const updateWidth = (nextWidth: number) => {
+    const nextHeight = getClosestOption(
+      getLegalHeightsForWidth(nextWidth),
+      height,
+    );
+
+    setSize(buildImageSize(nextWidth, nextHeight));
+  };
+  const updateHeight = (nextHeight: number) => {
+    const nextWidth = getClosestOption(
+      getLegalWidthsForHeight(nextHeight),
+      width,
+    );
+
+    setSize(buildImageSize(nextWidth, nextHeight));
+  };
   const applyReferenceFile = (file: File | undefined) => {
     if (!file?.type.startsWith("image/")) {
       setReferenceError("参考图必须是图片文件。");
@@ -102,7 +155,7 @@ function PromptPanel() {
   };
 
   return (
-    <section className="prompt-zone">
+    <section ref={panelRef} className="prompt-zone">
       <h1 className="product-title">
         GPT-Image-2
       </h1>
@@ -114,34 +167,63 @@ function PromptPanel() {
         className="prompt-input"
       />
 
+      <div className="size-controls">
+        <label className="dimension-field">
+          <span>宽</span>
+          <select
+            value={width}
+            onChange={(event) => updateWidth(Number(event.target.value))}
+          >
+            {widthOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="dimension-separator">×</span>
+        <label className="dimension-field">
+          <span>高</span>
+          <select
+            value={height}
+            onChange={(event) => updateHeight(Number(event.target.value))}
+          >
+            {heightOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="size-summary">{formatSizeLabel(size)}</span>
+      </div>
+
+      <div className="format-controls">
+        <div className="inline-option-group">
+          {imageQualities.map((nextQuality) => (
+            <TagButton
+              key={nextQuality}
+              active={quality === nextQuality}
+              onClick={() => setQuality(nextQuality)}
+            >
+              {qualityLabel(nextQuality)}
+            </TagButton>
+          ))}
+        </div>
+        <div className="inline-option-group">
+          {imageFormats.map((format) => (
+            <TagButton
+              key={format}
+              active={outputFormat === format}
+              onClick={() => setOutputFormat(format)}
+            >
+              {format.toUpperCase()}
+            </TagButton>
+          ))}
+        </div>
+      </div>
+
       <div className="tag-cloud">
-        {imageSizes.map((nextSize) => (
-          <TagButton
-            key={nextSize}
-            active={size === nextSize}
-            onClick={() => setSize(nextSize)}
-          >
-            {formatSizeLabel(nextSize)}
-          </TagButton>
-        ))}
-        {imageQualities.map((nextQuality) => (
-          <TagButton
-            key={nextQuality}
-            active={quality === nextQuality}
-            onClick={() => setQuality(nextQuality)}
-          >
-            {qualityLabel(nextQuality)}
-          </TagButton>
-        ))}
-        {imageFormats.map((format) => (
-          <TagButton
-            key={format}
-            active={outputFormat === format}
-            onClick={() => setOutputFormat(format)}
-          >
-            {format.toUpperCase()}
-          </TagButton>
-        ))}
         {tags.map((tag) => (
           <DeletableTag
             key={tag}
@@ -252,7 +334,11 @@ function PromptPanel() {
           disabled={isGenerating || prompt.trim().length < 2}
           className="generate-command"
         >
-          {isGenerating ? "生成中..." : "生成图片"}
+          <GenerateButtonLabel
+            generationPhase={generationPhase}
+            generationSeconds={generationSeconds}
+            rateLimitWaitSeconds={rateLimitWaitSeconds}
+          />
         </button>
         {isAutoGenerating ? (
           <button
@@ -275,6 +361,40 @@ function PromptPanel() {
       </div>
     </section>
   );
+}
+
+function GenerateButtonLabel({
+  generationPhase,
+  generationSeconds,
+  rateLimitWaitSeconds,
+}: {
+  generationPhase: "idle" | "waiting" | "generating";
+  generationSeconds: number;
+  rateLimitWaitSeconds: number;
+}) {
+  if (generationPhase === "waiting") {
+    return (
+      <>
+        <span>等待请求窗口</span>
+        <span className="generate-command-timer">
+          {formatSeconds(rateLimitWaitSeconds)}
+        </span>
+      </>
+    );
+  }
+
+  if (generationPhase === "generating") {
+    return (
+      <>
+        <span>生成中...</span>
+        <span className="generate-command-timer">
+          {formatSeconds(generationSeconds)}
+        </span>
+      </>
+    );
+  }
+
+  return <span>生成图片</span>;
 }
 
 function ConfirmDialog({
@@ -386,33 +506,32 @@ function DeletableTag({
   );
 }
 
-function PreviewPanel() {
+function PreviewPanel({
+  promptPanelHeight,
+}: {
+  promptPanelHeight: number;
+}) {
   const {
     activeResult,
     isGenerating,
     generationPhase,
-    generationSeconds,
-    rateLimitWaitSeconds,
   } = useImageState();
+  const previewStyle =
+    promptPanelHeight > 0
+      ? ({
+          "--preview-height": `${promptPanelHeight}px`,
+        } as CSSProperties)
+      : undefined;
 
   return (
-    <section className="preview-zone">
+    <section className="preview-zone" style={previewStyle}>
       {activeResult ? (
-        <div className="preview-stack">
-          <PreviewImage result={activeResult} />
-          <PreviewStatus
-            generationPhase={generationPhase}
-            generationSeconds={generationSeconds}
-            rateLimitWaitSeconds={rateLimitWaitSeconds}
-          />
-        </div>
+        <PreviewImage result={activeResult} />
       ) : (
         <PreviewStatus
           isEmpty
           isGenerating={isGenerating}
           generationPhase={generationPhase}
-          generationSeconds={generationSeconds}
-          rateLimitWaitSeconds={rateLimitWaitSeconds}
         />
       )}
     </section>
@@ -423,20 +542,15 @@ function PreviewStatus({
   isEmpty = false,
   isGenerating = false,
   generationPhase,
-  generationSeconds,
-  rateLimitWaitSeconds,
 }: {
   isEmpty?: boolean;
   isGenerating?: boolean;
   generationPhase: "idle" | "waiting" | "generating";
-  generationSeconds: number;
-  rateLimitWaitSeconds: number;
 }) {
   if (generationPhase === "waiting") {
     return (
       <p className={isEmpty ? "preview-empty" : "preview-status"}>
         <span>等待请求窗口</span>
-        <span>{formatSeconds(rateLimitWaitSeconds)}</span>
         <span>官方限制为 2 RPM，请求按约 30 秒间隔发送。</span>
       </p>
     );
@@ -446,7 +560,6 @@ function PreviewStatus({
     return (
       <p className={isEmpty ? "preview-empty" : "preview-status"}>
         <span>生成中...</span>
-        <span>{formatSeconds(generationSeconds)}</span>
       </p>
     );
   }
@@ -463,8 +576,6 @@ function PreviewStatus({
 }
 
 function PreviewImage({ result }: { result: GeneratedImageResult }) {
-  const { width, height } = getImageDimensions(result.size);
-
   if (result.status === "blocked") {
     return null;
   }
@@ -473,8 +584,8 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
     <Image
       src={result.imageUrl}
       alt={result.prompt}
-      width={width}
-      height={height}
+      fill
+      sizes="(max-width: 1023px) 100vw, 55vw"
       unoptimized
       priority
       className="preview-image"
@@ -758,6 +869,15 @@ function formatSizeLabel(size: ImageSize) {
   return size.replace("x", " x ");
 }
 
+function getClosestOption(options: number[], target: number) {
+  if (options.length === 0) {
+    return target;
+  }
+
+  return options.reduce((closest, option) =>
+    Math.abs(option - target) < Math.abs(closest - target) ? option : closest,
+  );
+}
 
 function formatSeconds(seconds: number) {
   const hours = Math.floor(seconds / 3600);
