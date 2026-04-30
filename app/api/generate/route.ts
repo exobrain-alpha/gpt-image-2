@@ -3,9 +3,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   backgroundModes,
+  defaultImageSize,
   imageFormats,
   imageQualities,
-  imageSizes,
+  isValidImageSize,
   type GenerateImageRequest,
 } from "@/lib/image-options";
 
@@ -403,7 +404,7 @@ function validateImageRequestBody(
     return { ok: false, error: "Prompt 不能超过 4000 个字符。" };
   }
 
-  const size = pickOption(body.size, imageSizes, "720x1024");
+  const size = isValidImageSize(body.size) ? body.size : defaultImageSize;
   const quality = pickOption(body.quality, imageQualities, "medium");
   const outputFormat = pickOption(body.outputFormat, imageFormats, "png");
   const background = pickOption(body.background, backgroundModes, "auto");
