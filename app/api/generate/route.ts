@@ -32,11 +32,6 @@ type GenerationContext = {
   deployment: string;
   endpointKind: string;
   operation: "generation" | "edit";
-  referenceImage?: {
-    fileName: string;
-    contentType: string;
-    size: number;
-  };
 };
 
 type ReferenceImageInput = {
@@ -152,19 +147,18 @@ export async function POST(request: Request) {
     responseBody?.data?.flatMap((item, index) =>
       item.b64_json
         ? [
-            buildImageResult(item.b64_json, index, payload, {
-              apiVersion,
-              deployment,
-              endpointKind,
-              operation,
-              referenceImage: referenceImage
-                ? {
-                    fileName: referenceImage.fileName,
-                    contentType: referenceImage.contentType,
-                    size: referenceImage.size,
-                  }
-                : undefined,
-            }),
+            buildImageResult(
+              item.b64_json,
+              index,
+              payload,
+              {
+                apiVersion,
+                deployment,
+                endpointKind,
+                operation,
+              },
+              referenceImage,
+            ),
           ]
         : [],
     ) ?? [],
@@ -249,6 +243,7 @@ async function buildImageResult(
   index: number,
   payload: GenerateImageRequest,
   context: GenerationContext,
+  referenceImage?: ReferenceImageInput,
 ) {
   await mkdir(outputDirectory, { recursive: true });
 
@@ -290,16 +285,28 @@ async function buildImageResult(
       {
         id,
         createdAt,
-        prompt: payload.prompt,
-        image: {
+        prompt: {
+          text: payload.prompt,
+          image: referenceImage
+            ? {
+                fileName: referenceImage.fileName,
+                contentType: referenceImage.contentType,
+                size: referenceImage.size,
+              }
+            : null,
+          options: {
+            size: payload.size,
+            quality: payload.quality,
+            outputFormat: payload.outputFormat,
+            background: payload.background,
+          },
+        },
+        output: {
           fileName,
           url: outputUrl,
-        },
-        options: {
-          size: payload.size,
-          quality: payload.quality,
-          outputFormat: payload.outputFormat,
-          background: payload.background,
+          absolutePath: diskPath,
+          metadataPath,
+          format: payload.outputFormat,
         },
         provider: context,
       },
