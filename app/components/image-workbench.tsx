@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  ArrowUpCircleIcon,
+  StopCircleIcon,
+} from "@heroicons/react/24/solid";
 import Image from "next/image";
 import {
   type CSSProperties,
@@ -30,6 +34,13 @@ const historyDragDataType = "application/x-gpt-image-history";
 type PromptAssistantMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+type PromptAssistantDialogState = {
+  initialMessage: string;
+  initialDraft: string;
+  autoSendInitialMessage: boolean;
+  mode: "create" | "adjust";
 };
 
 export function ImageWorkbench() {
@@ -104,7 +115,8 @@ function PromptPanel({
   const [isDraggingReference, setIsDraggingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantDialogState, setAssistantDialogState] =
+    useState<PromptAssistantDialogState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = getImageDimensions(size);
   const widthOptions = useMemo(() => getLegalWidthsForHeight(height), [height]);
@@ -173,14 +185,37 @@ function PromptPanel({
         className="prompt-input"
       />
 
-      <button
-        type="button"
-        className="assistant-command"
-        onClick={() => setIsAssistantOpen(true)}
-        disabled={prompt.trim().length < 2}
-      >
-        智能提示词
-      </button>
+      <div className="assistant-launch-row">
+        <button
+          type="button"
+          className="assistant-command"
+          onClick={() =>
+            setAssistantDialogState({
+              initialMessage: "",
+              initialDraft: "",
+              autoSendInitialMessage: false,
+              mode: "create",
+            })
+          }
+        >
+          智能提示词
+        </button>
+        <button
+          type="button"
+          className="assistant-adjust-command"
+          onClick={() =>
+            setAssistantDialogState({
+              initialMessage: "",
+              initialDraft: buildPromptAdjustmentDraft(prompt),
+              autoSendInitialMessage: false,
+              mode: "adjust",
+            })
+          }
+          disabled={!prompt.trim()}
+        >
+          调整提示词
+        </button>
+      </div>
 
       <div className="size-controls">
         <label className="dimension-field">
@@ -314,13 +349,16 @@ function PromptPanel({
         />
       ) : null}
 
-      {isAssistantOpen ? (
+      {assistantDialogState ? (
         <PromptAssistantDialog
-          initialTopic={prompt}
-          onCancel={() => setIsAssistantOpen(false)}
+          initialMessage={assistantDialogState.initialMessage}
+          initialDraft={assistantDialogState.initialDraft}
+          autoSendInitialMessage={assistantDialogState.autoSendInitialMessage}
+          mode={assistantDialogState.mode}
+          onCancel={() => setAssistantDialogState(null)}
           onApply={(nextPrompt) => {
             setPrompt(nextPrompt);
-            setIsAssistantOpen(false);
+            setAssistantDialogState(null);
           }}
         />
       ) : null}
@@ -366,30 +404,45 @@ function PromptPanel({
 }
 
 function PromptAssistantDialog({
-  initialTopic,
+  initialMessage,
+  initialDraft,
+  autoSendInitialMessage,
+  mode,
   onApply,
   onCancel,
 }: {
-  initialTopic: string;
+  initialMessage: string;
+  initialDraft: string;
+  autoSendInitialMessage: boolean;
+  mode: "create" | "adjust";
   onApply: (prompt: string) => void;
   onCancel: () => void;
 }) {
-  const normalizedInitialTopic = initialTopic.trim();
+  const normalizedInitialMessage = initialMessage.trim();
   const [messages, setMessages] = useState<PromptAssistantMessage[]>(
-    normalizedInitialTopic
-      ? [{ role: "user", content: normalizedInitialTopic }]
+    normalizedInitialMessage
+      ? [{ role: "user", content: normalizedInitialMessage }]
       : [],
   );
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [error, setError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const didSendInitialMessageRef = useRef(false);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
   const latestPrompt = [...messages]
     .reverse()
     .find((message) => message.role === "assistant")?.content;
+  const draftPlaceholder =
+    mode === "create" && messages.length === 0
+      ? "请填写提示词或主题"
+      : "请输入要调整的内容或补充优化要求";
 
   const sendMessages = useCallback(async (nextMessages: PromptAssistantMessage[]) => {
+    const abortController = new AbortController();
+
+    activeRequestControllerRef.current = abortController;
     setIsSending(true);
     setError(null);
 
@@ -398,6 +451,7 @@ function PromptAssistantDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: nextMessages }),
+        signal: abortController.signal,
       });
       const data = (await response.json()) as {
         prompt?: string;
@@ -415,20 +469,37 @@ function PromptAssistantDialog({
         { role: "assistant", content: assistantPrompt },
       ]);
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") {
+        setError(null);
+        return;
+      }
+
       setError(caught instanceof Error ? caught.message : "智能提示词生成失败。");
     } finally {
+      if (activeRequestControllerRef.current === abortController) {
+        activeRequestControllerRef.current = null;
+      }
+
       setIsSending(false);
     }
   }, []);
 
+  const stopSending = useCallback(() => {
+    activeRequestControllerRef.current?.abort();
+  }, []);
+
   useEffect(() => {
-    if (didSendInitialMessageRef.current || !normalizedInitialTopic) {
+    if (
+      didSendInitialMessageRef.current ||
+      !autoSendInitialMessage ||
+      !normalizedInitialMessage
+    ) {
       return;
     }
 
     didSendInitialMessageRef.current = true;
-    void sendMessages([{ role: "user", content: normalizedInitialTopic }]);
-  }, [normalizedInitialTopic, sendMessages]);
+    void sendMessages([{ role: "user", content: normalizedInitialMessage }]);
+  }, [autoSendInitialMessage, normalizedInitialMessage, sendMessages]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -443,11 +514,30 @@ function PromptAssistantDialog({
   }, [onCancel]);
 
   useEffect(() => {
+    draftInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    return () => activeRequestControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
     messageListRef.current?.scrollTo({
       top: messageListRef.current.scrollHeight,
       behavior: "smooth",
     });
   }, [messages, isSending]);
+
+  useEffect(() => {
+    const draftInput = draftInputRef.current;
+
+    if (!draftInput) {
+      return;
+    }
+
+    draftInput.style.height = "auto";
+    draftInput.style.height = `${draftInput.scrollHeight}px`;
+  }, [draft]);
 
   const submitMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -499,26 +589,30 @@ function PromptAssistantDialog({
               className={`assistant-message assistant-message-${message.role}`}
             >
               <span>{message.role === "assistant" ? "AI" : "你"}</span>
-              <p>{message.content}</p>
-              {message.role === "assistant" ? (
-                <div className="assistant-message-actions">
+              <div className="assistant-message-bubble">
+                <p>{message.content}</p>
+                <footer className="assistant-message-actions">
                   <button
                     type="button"
                     onClick={() => void navigator.clipboard.writeText(message.content)}
                   >
                     复制
                   </button>
-                  <button type="button" onClick={() => onApply(message.content)}>
-                    应用
-                  </button>
-                </div>
-              ) : null}
+                  {message.role === "assistant" ? (
+                    <button type="button" onClick={() => onApply(message.content)}>
+                      应用
+                    </button>
+                  ) : null}
+                </footer>
+              </div>
             </article>
           ))}
           {isSending ? (
             <article className="assistant-message assistant-message-assistant">
               <span>AI</span>
-              <p>生成中...</p>
+              <div className="assistant-message-bubble">
+                <p>生成中...</p>
+              </div>
             </article>
           ) : null}
         </div>
@@ -526,15 +620,36 @@ function PromptAssistantDialog({
         {error ? <p className="assistant-error">{error}</p> : null}
 
         <form className="assistant-input-row" onSubmit={submitMessage}>
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="继续调整提示词"
-            rows={2}
-          />
-          <button type="submit" disabled={isSending || !draft.trim()}>
-            发送
-          </button>
+          <div className="assistant-input-wrap">
+            <textarea
+              ref={draftInputRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={draftPlaceholder}
+              rows={1}
+            />
+            <footer className="assistant-input-footer">
+              {isSending ? (
+                <button
+                  type="button"
+                  onClick={stopSending}
+                  aria-label="终止"
+                  title="终止"
+                >
+                  <StopCircleIcon aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!draft.trim()}
+                  aria-label="发送"
+                  title="发送"
+                >
+                  <ArrowUpCircleIcon aria-hidden="true" />
+                </button>
+              )}
+            </footer>
+          </div>
         </form>
 
         {latestPrompt ? (
@@ -549,6 +664,16 @@ function PromptAssistantDialog({
       </section>
     </div>
   );
+}
+
+function buildPromptAdjustmentDraft(prompt: string) {
+  const normalized = prompt.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  return `请基于以下提示词继续优化：\n\n${normalized}\n\n优化要求：`;
 }
 
 function GenerateButtonLabel({
