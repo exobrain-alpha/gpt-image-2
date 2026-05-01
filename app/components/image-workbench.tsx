@@ -43,7 +43,11 @@ type PromptAssistantDialogState = {
   mode: "create" | "adjust";
 };
 
-export function ImageWorkbench() {
+export function ImageWorkbench({
+  outputDirectory,
+}: {
+  outputDirectory: string;
+}) {
   const promptPanelRef = useRef<HTMLElement | null>(null);
   const [promptPanelHeight, setPromptPanelHeight] = useState(0);
 
@@ -75,7 +79,7 @@ export function ImageWorkbench() {
             <PromptPanel panelRef={promptPanelRef} />
             <PreviewPanel promptPanelHeight={promptPanelHeight} />
           </div>
-          <HistoryPanel />
+          <HistoryPanel outputDirectory={outputDirectory} />
         </div>
       </main>
     </ImageProvider>
@@ -273,18 +277,20 @@ function PromptPanel({
         </div>
       </div>
 
-      <div className="tag-cloud">
-        {tags.map((tag) => (
-          <DeletableTag
-            key={tag}
-            active={activeTags.includes(tag)}
-            onClick={() => applyTag(tag)}
-            onDelete={() => setTagPendingDelete(tag)}
-          >
-            {tag}
-          </DeletableTag>
-        ))}
-      </div>
+      {tags.length > 0 ? (
+        <div className="tag-cloud">
+          {tags.map((tag) => (
+            <DeletableTag
+              key={tag}
+              active={activeTags.includes(tag)}
+              onClick={() => applyTag(tag)}
+              onDelete={() => setTagPendingDelete(tag)}
+            >
+              {tag}
+            </DeletableTag>
+          ))}
+        </div>
+      ) : null}
 
       <div className="reference-zone">
         <input
@@ -906,7 +912,7 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
   );
 }
 
-function HistoryPanel() {
+function HistoryPanel({ outputDirectory }: { outputDirectory: string }) {
   const { history, selectResult, clearHistory } = useImageState();
   const [columns, setColumns] = useState(1);
   const [lightboxResult, setLightboxResult] =
@@ -938,11 +944,16 @@ function HistoryPanel() {
   }, []);
 
   if (history.length === 0) {
-    return <section className="min-h-36" />;
+    return (
+      <section className="history-section">
+        <p className="history-directory">历史记录 · {outputDirectory}</p>
+      </section>
+    );
   }
 
   return (
-    <section>
+    <section className="history-section">
+      <p className="history-directory">历史记录 · {outputDirectory}</p>
       <div
         className="history-grid"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}

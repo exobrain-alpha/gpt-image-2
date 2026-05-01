@@ -9,6 +9,7 @@ import {
   isValidImageSize,
   type GenerateImageRequest,
 } from "@/lib/image-options";
+import { getOutputDirectory } from "@/lib/output-directory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -60,7 +61,7 @@ type ImageRequestInput = {
 
 const defaultApiVersion = "2025-04-01-preview";
 const defaultDeployment = "gpt-image-2";
-const outputDirectory = path.join(process.cwd(), "outputs");
+const outputDirectory = getOutputDirectory();
 const maxReferenceImageBytes = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {

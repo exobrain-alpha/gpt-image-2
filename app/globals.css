@@ -811,7 +811,7 @@ button:disabled {
 .reference-zone {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .reference-dropzone {
@@ -1026,6 +1026,17 @@ button:disabled {
   max-height: none;
   object-fit: contain;
   object-position: center;
+}
+
+.history-section {
+  min-height: 9rem;
+}
+
+.history-directory {
+  margin: 0 0 14px;
+  color: rgba(20, 19, 24, 0.38);
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
 .history-grid {
