@@ -36,8 +36,6 @@ type ImageContextValue = {
   referenceImage: string | null;
   activeResult: GeneratedImageResult | null;
   history: GeneratedImageResult[];
-  tags: string[];
-  activeTags: string[];
   isGenerating: boolean;
   isAutoGenerating: boolean;
   generationPhase: "idle" | "waiting" | "generating";
@@ -50,9 +48,6 @@ type ImageContextValue = {
   setOutputFormat: (value: ImageFormat) => void;
   setBackground: (value: BackgroundMode) => void;
   setReferenceImage: (value: File | null) => void;
-  applyTag: (tag: string) => void;
-  addTag: (tag: string) => Promise<void>;
-  deleteTag: (tag: string) => Promise<void>;
   generateImage: () => Promise<void>;
   startAutoGeneration: () => void;
   stopAutoGeneration: () => void;
@@ -73,8 +68,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<GeneratedImageResult[]>([]);
   const [activeResult, setActiveResult] =
     useState<GeneratedImageResult | null>(null);
-  const [tags, setTags] = useState<string[]>([]);
-  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [generationPhase, setGenerationPhase] =
@@ -144,121 +137,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
 
     return () => window.clearInterval(interval);
   }, [generationPhase]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    fetch("/api/tags")
-      .then((response) => response.json())
-      .then((data: { tags?: string[] }) => {
-        if (isMounted && Array.isArray(data.tags)) {
-          setTags(data.tags);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setTags([]);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const applyTag = useCallback((tag: string) => {
-    const isActive = activeTags.includes(tag);
-
-    setActiveTags((current) =>
-      isActive
-        ? current.filter((activeTag) => activeTag !== tag)
-        : [...current, tag],
-    );
-    setPrompt((current) => {
-      const normalized = current.trim();
-
-      if (isActive) {
-        return normalized
-          .split("，")
-          .map((part) => part.trim())
-          .filter((part) => part && part !== tag)
-          .join("，");
-      }
-
-      if (!normalized) {
-        return tag;
-      }
-
-      if (normalized.includes(tag)) {
-        return current;
-      }
-
-      return `${normalized}，${tag}`;
-    });
-  }, [activeTags]);
-
-  const addTag = useCallback(async (tag: string) => {
-    const normalized = tag.trim();
-
-    if (!normalized) {
-      return;
-    }
-
-    const response = await fetch("/api/tags", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag: normalized }),
-    });
-    const data = (await response.json()) as { tags?: string[]; error?: string };
-
-    if (!response.ok || !Array.isArray(data.tags)) {
-      throw new Error(data.error ?? "保存常用词失败。");
-    }
-
-    setTags(data.tags);
-    setActiveTags((current) => {
-      const next = current.includes(normalized) ? current : [...current, normalized];
-
-      return next;
-    });
-    setPrompt((current) => {
-      const normalizedPrompt = current.trim();
-
-      if (!normalizedPrompt) {
-        return normalized;
-      }
-
-      if (normalizedPrompt.includes(normalized)) {
-        return current;
-      }
-
-      return `${normalizedPrompt}，${normalized}`;
-    });
-  }, []);
-
-  const deleteTag = useCallback(async (tag: string) => {
-    const normalized = tag.trim();
-
-    if (!normalized) {
-      return;
-    }
-
-    const response = await fetch("/api/tags", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag: normalized }),
-    });
-    const data = (await response.json()) as { tags?: string[]; error?: string };
-
-    if (!response.ok || !Array.isArray(data.tags)) {
-      throw new Error(data.error ?? "删除常用词失败。");
-    }
-
-    setTags(data.tags);
-    setActiveTags((current) =>
-      current.filter((activeTag) => activeTag !== normalized),
-    );
-  }, []);
 
   const waitForRateLimit = useCallback(async (cancelWhenStopped: boolean) => {
     const elapsed = Date.now() - lastRequestStartedAtRef.current;
@@ -447,8 +325,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       referenceImage,
       activeResult,
       history,
-      tags,
-      activeTags,
       isGenerating,
       isAutoGenerating,
       generationPhase,
@@ -461,9 +337,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       setOutputFormat,
       setBackground,
       setReferenceImage,
-      applyTag,
-      addTag,
-      deleteTag,
       generateImage,
       startAutoGeneration,
       stopAutoGeneration,
@@ -472,12 +345,8 @@ export function ImageProvider({ children }: { children: ReactNode }) {
     }),
     [
       activeResult,
-      activeTags,
-      applyTag,
-      addTag,
       background,
       clearHistory,
-      deleteTag,
       error,
       generateImage,
       generationPhase,
@@ -494,7 +363,6 @@ export function ImageProvider({ children }: { children: ReactNode }) {
       size,
       startAutoGeneration,
       stopAutoGeneration,
-      tags,
     ],
   );
 

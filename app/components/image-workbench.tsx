@@ -1,8 +1,11 @@
 "use client";
 
+import { ArrowUpCircleIcon, StopCircleIcon } from "@heroicons/react/24/solid";
 import Image from "next/image";
 import {
   type CSSProperties,
+  type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -25,7 +28,31 @@ import { ImageProvider, useImageState } from "./image-state";
 
 const historyDragDataType = "application/x-gpt-image-history";
 
-export function ImageWorkbench() {
+type PromptAssistantMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type PromptAssistantDialogState = {
+  initialMessage: string;
+  initialDraft: string;
+  autoSendInitialMessage: boolean;
+  mode: "create" | "adjust";
+};
+
+type PromptAssistantSession = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  mode: "create" | "adjust";
+  messages: PromptAssistantMessage[];
+};
+
+export function ImageWorkbench({
+  outputDirectory,
+}: {
+  outputDirectory: string;
+}) {
   const promptPanelRef = useRef<HTMLElement | null>(null);
   const [promptPanelHeight, setPromptPanelHeight] = useState(0);
 
@@ -57,7 +84,7 @@ export function ImageWorkbench() {
             <PromptPanel panelRef={promptPanelRef} />
             <PreviewPanel promptPanelHeight={promptPanelHeight} />
           </div>
-          <HistoryPanel />
+          <HistoryPanel outputDirectory={outputDirectory} />
         </div>
       </main>
     </ImageProvider>
@@ -80,11 +107,6 @@ function PromptPanel({
     setOutputFormat,
     referenceImage,
     setReferenceImage,
-    tags,
-    activeTags,
-    applyTag,
-    addTag,
-    deleteTag,
     generateImage,
     startAutoGeneration,
     stopAutoGeneration,
@@ -95,10 +117,11 @@ function PromptPanel({
     rateLimitWaitSeconds,
     error,
   } = useImageState();
-  const [newTag, setNewTag] = useState("");
   const [isDraggingReference, setIsDraggingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
-  const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
+  const [assistantDialogState, setAssistantDialogState] =
+    useState<PromptAssistantDialogState | null>(null);
+  const [isAssistantHistoryOpen, setIsAssistantHistoryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = getImageDimensions(size);
   const widthOptions = useMemo(() => getLegalWidthsForHeight(height), [height]);
@@ -156,9 +179,7 @@ function PromptPanel({
 
   return (
     <section ref={panelRef} className="prompt-zone">
-      <h1 className="product-title">
-        GPT-Image-2
-      </h1>
+      <h1 className="product-title">GPT-Image-2</h1>
 
       <textarea
         value={prompt}
@@ -166,6 +187,47 @@ function PromptPanel({
         placeholder="Prompt"
         className="prompt-input"
       />
+
+      <div className="assistant-launch-row">
+        <button
+          type="button"
+          className="assistant-command"
+          onClick={() =>
+            setAssistantDialogState({
+              initialMessage: "",
+              initialDraft: "",
+              autoSendInitialMessage: false,
+              mode: "create",
+            })
+          }
+        >
+          智能提示词
+        </button>
+        <button
+          type="button"
+          className="assistant-adjust-command"
+          onClick={() =>
+            setAssistantDialogState({
+              initialMessage: "",
+              initialDraft: buildPromptAdjustmentDraft(prompt),
+              autoSendInitialMessage: false,
+              mode: "adjust",
+            })
+          }
+          disabled={!prompt.trim()}
+        >
+          调整提示词
+        </button>
+        <button
+          type="button"
+          className="assistant-history-command"
+          onClick={() => setIsAssistantHistoryOpen(true)}
+          aria-label="查看智能提示词历史"
+          title="历史会话"
+        >
+          历史提示词
+        </button>
+      </div>
 
       <div className="size-controls">
         <label className="dimension-field">
@@ -201,64 +263,27 @@ function PromptPanel({
       <div className="format-controls">
         <div className="inline-option-group">
           {imageQualities.map((nextQuality) => (
-            <TagButton
+            <OptionButton
               key={nextQuality}
               active={quality === nextQuality}
               onClick={() => setQuality(nextQuality)}
             >
               {qualityLabel(nextQuality)}
-            </TagButton>
+            </OptionButton>
           ))}
         </div>
         <div className="inline-option-group">
           {imageFormats.map((format) => (
-            <TagButton
+            <OptionButton
               key={format}
               active={outputFormat === format}
               onClick={() => setOutputFormat(format)}
             >
               {format.toUpperCase()}
-            </TagButton>
+            </OptionButton>
           ))}
         </div>
       </div>
-
-      <div className="tag-cloud">
-        {tags.map((tag) => (
-          <DeletableTag
-            key={tag}
-            active={activeTags.includes(tag)}
-            onClick={() => applyTag(tag)}
-            onDelete={() => setTagPendingDelete(tag)}
-          >
-            {tag}
-          </DeletableTag>
-        ))}
-      </div>
-
-      <form
-        className="tag-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          addTag(newTag)
-            .then(() => setNewTag(""))
-            .catch(() => setNewTag(""));
-        }}
-      >
-        <input
-          value={newTag}
-          onChange={(event) => setNewTag(event.target.value)}
-          placeholder="新增常用词"
-          className="tag-input"
-        />
-        <button
-          type="submit"
-          className="small-command"
-          disabled={!newTag.trim()}
-        >
-          添加
-        </button>
-      </form>
 
       <div className="reference-zone">
         <input
@@ -309,16 +334,26 @@ function PromptPanel({
         ) : null}
       </div>
 
-      {tagPendingDelete ? (
-        <ConfirmDialog
-          title="删除标签"
-          message={`删除「${tagPendingDelete}」？`}
-          confirmText="删除"
-          cancelText="取消"
-          onCancel={() => setTagPendingDelete(null)}
-          onConfirm={() => {
-            void deleteTag(tagPendingDelete);
-            setTagPendingDelete(null);
+      {assistantDialogState ? (
+        <PromptAssistantDialog
+          initialMessage={assistantDialogState.initialMessage}
+          initialDraft={assistantDialogState.initialDraft}
+          autoSendInitialMessage={assistantDialogState.autoSendInitialMessage}
+          mode={assistantDialogState.mode}
+          onCancel={() => setAssistantDialogState(null)}
+          onApply={(nextPrompt) => {
+            setPrompt(nextPrompt);
+            setAssistantDialogState(null);
+          }}
+        />
+      ) : null}
+
+      {isAssistantHistoryOpen ? (
+        <PromptAssistantHistoryDialog
+          onCancel={() => setIsAssistantHistoryOpen(false)}
+          onApply={(nextPrompt) => {
+            setPrompt(nextPrompt);
+            setIsAssistantHistoryOpen(false);
           }}
         />
       ) : null}
@@ -363,6 +398,548 @@ function PromptPanel({
   );
 }
 
+function PromptAssistantDialog({
+  initialMessage,
+  initialDraft,
+  autoSendInitialMessage,
+  mode,
+  onApply,
+  onCancel,
+}: {
+  initialMessage: string;
+  initialDraft: string;
+  autoSendInitialMessage: boolean;
+  mode: "create" | "adjust";
+  onApply: (prompt: string) => void;
+  onCancel: () => void;
+}) {
+  const normalizedInitialMessage = initialMessage.trim();
+  const [messages, setMessages] = useState<PromptAssistantMessage[]>(
+    normalizedInitialMessage
+      ? [{ role: "user", content: normalizedInitialMessage }]
+      : [],
+  );
+  const [draft, setDraft] = useState(initialDraft);
+  const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const didSendInitialMessageRef = useRef(false);
+  const isCreatingSessionRef = useRef(false);
+  const isAssistantDialogMountedRef = useRef(true);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const latestPrompt = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
+  const draftPlaceholder =
+    mode === "create" && messages.length === 0
+      ? "请填写提示词或主题"
+      : "请输入要调整的内容或补充优化要求";
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    const abortController = new AbortController();
+
+    if (!sessionId) {
+      if (isCreatingSessionRef.current) {
+        return;
+      }
+
+      isCreatingSessionRef.current = true;
+
+      void fetch("/api/prompt-assistant/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          mode,
+          messages,
+        }),
+      })
+        .then(async (response) => {
+          const data = (await response.json()) as {
+            session?: PromptAssistantSession;
+            error?: string;
+          };
+
+          if (!response.ok || !data.session?.id) {
+            throw new Error(data.error ?? "无法创建智能提示词历史文件。");
+          }
+
+          if (isAssistantDialogMountedRef.current) {
+            setSessionId(data.session.id);
+          }
+        })
+        .catch((caught) => {
+          if (isAssistantDialogMountedRef.current) {
+            setError(
+              caught instanceof Error
+                ? caught.message
+                : "无法创建智能提示词历史文件。",
+            );
+          }
+        })
+        .finally(() => {
+          isCreatingSessionRef.current = false;
+        });
+
+      return;
+    }
+
+    void fetch("/api/prompt-assistant/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "update",
+        id: sessionId,
+        mode,
+        messages,
+      }),
+      signal: abortController.signal,
+    }).catch(() => {
+      if (!abortController.signal.aborted) {
+        setError("无法保存智能提示词历史。");
+      }
+    });
+
+    return () => abortController.abort();
+  }, [messages, mode, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      isAssistantDialogMountedRef.current = false;
+      activeRequestControllerRef.current?.abort();
+    };
+  }, []);
+
+  const sendMessages = useCallback(
+    async (nextMessages: PromptAssistantMessage[]) => {
+      const abortController = new AbortController();
+
+      activeRequestControllerRef.current = abortController;
+      setIsSending(true);
+      setError(null);
+
+      try {
+        const response = await fetch("/api/prompt-assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: nextMessages }),
+          signal: abortController.signal,
+        });
+        const data = (await response.json()) as {
+          prompt?: string;
+          error?: string;
+        };
+
+        if (!response.ok || typeof data.prompt !== "string") {
+          throw new Error(data.error ?? "智能提示词生成失败。");
+        }
+
+        const assistantPrompt = data.prompt.trim();
+
+        setMessages((current) => [
+          ...current,
+          { role: "assistant", content: assistantPrompt },
+        ]);
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          setError(null);
+          return;
+        }
+
+        setError(
+          caught instanceof Error ? caught.message : "智能提示词生成失败。",
+        );
+      } finally {
+        if (activeRequestControllerRef.current === abortController) {
+          activeRequestControllerRef.current = null;
+        }
+
+        setIsSending(false);
+      }
+    },
+    [],
+  );
+
+  const stopSending = useCallback(() => {
+    activeRequestControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (
+      didSendInitialMessageRef.current ||
+      !autoSendInitialMessage ||
+      !normalizedInitialMessage
+    ) {
+      return;
+    }
+
+    didSendInitialMessageRef.current = true;
+    void sendMessages([{ role: "user", content: normalizedInitialMessage }]);
+  }, [autoSendInitialMessage, normalizedInitialMessage, sendMessages]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  useEffect(() => {
+    draftInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    messageListRef.current?.scrollTo({
+      top: messageListRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, isSending]);
+
+  useEffect(() => {
+    const draftInput = draftInputRef.current;
+
+    if (!draftInput) {
+      return;
+    }
+
+    draftInput.style.height = "auto";
+    draftInput.style.height = `${draftInput.scrollHeight}px`;
+  }, [draft]);
+
+  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const normalizedDraft = draft.trim();
+
+    if (!normalizedDraft || isSending) {
+      return;
+    }
+
+    const nextMessages: PromptAssistantMessage[] = [
+      ...messages,
+      { role: "user", content: normalizedDraft },
+    ];
+
+    setMessages(nextMessages);
+    setDraft("");
+    void sendMessages(nextMessages);
+  };
+
+  return (
+    <div className="assistant-layer" role="presentation" onClick={onCancel}>
+      <section
+        className="assistant-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assistant-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="assistant-header">
+          <div>
+            <h2 id="assistant-title">智能提示词</h2>
+            <span>claude-opus-4-7</span>
+          </div>
+          <button
+            type="button"
+            className="assistant-close"
+            onClick={onCancel}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+
+        <div ref={messageListRef} className="assistant-messages">
+          {messages.map((message, index) => (
+            <article
+              key={`${message.role}-${index}`}
+              className={`assistant-message assistant-message-${message.role}`}
+            >
+              <span>{message.role === "assistant" ? "AI" : "你"}</span>
+              <div className="assistant-message-bubble">
+                <p>{message.content}</p>
+                <footer className="assistant-message-actions">
+                  <CopyPromptButton content={message.content} />
+                  {message.role === "assistant" ? (
+                    <button
+                      type="button"
+                      onClick={() => onApply(message.content)}
+                    >
+                      应用
+                    </button>
+                  ) : null}
+                </footer>
+              </div>
+            </article>
+          ))}
+          {isSending ? (
+            <article className="assistant-message assistant-message-assistant">
+              <span>AI</span>
+              <div className="assistant-message-bubble">
+                <p>生成中...</p>
+              </div>
+            </article>
+          ) : null}
+        </div>
+
+        {error ? <p className="assistant-error">{error}</p> : null}
+
+        <form className="assistant-input-row" onSubmit={submitMessage}>
+          <div className="assistant-input-wrap">
+            <textarea
+              ref={draftInputRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={draftPlaceholder}
+              rows={1}
+            />
+            <footer className="assistant-input-footer">
+              {isSending ? (
+                <button
+                  type="button"
+                  onClick={stopSending}
+                  aria-label="终止"
+                  title="终止"
+                >
+                  <StopCircleIcon aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!draft.trim()}
+                  aria-label="发送"
+                  title="发送"
+                >
+                  <ArrowUpCircleIcon aria-hidden="true" />
+                </button>
+              )}
+            </footer>
+          </div>
+        </form>
+
+        {latestPrompt ? (
+          <button
+            type="button"
+            className="assistant-apply-latest"
+            onClick={() => onApply(latestPrompt)}
+          >
+            应用最新提示词
+          </button>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function CopyPromptButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const copyContent = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+
+    if (resetTimerRef.current) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimerRef.current = null;
+    }, 1400);
+  };
+
+  return (
+    <button
+      type="button"
+      className={copied ? "assistant-copy-command-copied" : undefined}
+      onClick={() => void copyContent()}
+      aria-live="polite"
+    >
+      {copied ? "已复制" : "复制"}
+    </button>
+  );
+}
+
+function PromptAssistantHistoryDialog({
+  onApply,
+  onCancel,
+}: {
+  onApply: (prompt: string) => void;
+  onCancel: () => void;
+}) {
+  const [sessions, setSessions] = useState<PromptAssistantSession[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadSessions = async () => {
+      try {
+        const response = await fetch("/api/prompt-assistant/sessions");
+        const data = (await response.json()) as {
+          sessions?: PromptAssistantSession[];
+          error?: string;
+        };
+
+        if (!response.ok || !Array.isArray(data.sessions)) {
+          throw new Error(data.error ?? "无法读取智能提示词历史。");
+        }
+
+        if (isActive) {
+          setSessions(data.sessions);
+        }
+      } catch (caught) {
+        if (isActive) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "无法读取智能提示词历史。",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadSessions();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="assistant-layer assistant-history-layer"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <section
+        className="assistant-history-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assistant-history-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="assistant-header">
+          <div>
+            <h2 id="assistant-history-title">历史对话</h2>
+          </div>
+          <button
+            type="button"
+            className="assistant-close"
+            onClick={onCancel}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="assistant-history-list">
+          {isLoading ? (
+            <p className="assistant-history-empty">读取中...</p>
+          ) : null}
+          {error ? <p className="assistant-error">{error}</p> : null}
+          {!isLoading && !error && sessions.length === 0 ? (
+            <p className="assistant-history-empty">暂无历史会话</p>
+          ) : null}
+          {sessions.map((session) => (
+            <details key={session.id} className="assistant-history-item">
+              <summary>
+                <span>
+                  {session.mode === "create" ? "智能提示词" : "调整提示词"}
+                </span>
+                <strong>{getSessionSummary(session)}</strong>
+                <time>{session.updatedAt || session.createdAt}</time>
+              </summary>
+              <div className="assistant-history-messages">
+                {session.messages.map((message, index) => (
+                  <article
+                    key={`${session.id}-${message.role}-${index}`}
+                    className={`assistant-message assistant-message-${message.role}`}
+                  >
+                    <span>{message.role === "assistant" ? "AI" : "你"}</span>
+                    <div className="assistant-message-bubble">
+                      <p>{message.content}</p>
+                      <footer className="assistant-message-actions">
+                        <CopyPromptButton content={message.content} />
+                        {message.role === "assistant" ? (
+                          <button
+                            type="button"
+                            onClick={() => onApply(message.content)}
+                          >
+                            应用
+                          </button>
+                        ) : null}
+                      </footer>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getSessionSummary(session: PromptAssistantSession) {
+  const content =
+    [...session.messages]
+      .reverse()
+      .find((message) => message.role === "assistant")?.content ??
+    session.messages[0]?.content ??
+    "空会话";
+
+  return content.length > 64 ? `${content.slice(0, 64)}...` : content;
+}
+
+function buildPromptAdjustmentDraft(prompt: string) {
+  const normalized = prompt.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  return `请基于以下提示词继续优化：\n\n${normalized}\n\n优化要求：`;
+}
+
 function GenerateButtonLabel({
   generationPhase,
   generationSeconds,
@@ -397,58 +974,7 @@ function GenerateButtonLabel({
   return <span>生成图片</span>;
 }
 
-function ConfirmDialog({
-  title,
-  message,
-  confirmText,
-  cancelText,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  message: string;
-  confirmText: string;
-  cancelText: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
-  return (
-    <div className="confirm-layer" role="presentation" onClick={onCancel}>
-      <section
-        className="confirm-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 id="confirm-title">{title}</h2>
-        <p>{message}</p>
-        <div className="confirm-actions">
-          <button type="button" className="confirm-cancel" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button type="button" className="confirm-danger" onClick={onConfirm}>
-            {confirmText}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function TagButton({
+function OptionButton({
   active,
   onClick,
   children,
@@ -461,61 +987,15 @@ function TagButton({
     <button
       type="button"
       onClick={onClick}
-      className={`tag-button ${active ? "tag-button-active" : ""}`}
+      className={`option-button ${active ? "option-button-active" : ""}`}
     >
       {children}
     </button>
   );
 }
 
-function DeletableTag({
-  active,
-  canDelete = true,
-  onClick,
-  onDelete,
-  children,
-}: {
-  active: boolean;
-  canDelete?: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-  children: ReactNode;
-}) {
-  if (!canDelete) {
-    return (
-      <TagButton active={active} onClick={onClick}>
-        {children}
-      </TagButton>
-    );
-  }
-
-  return (
-    <span className={`tag-pill ${active ? "tag-pill-active" : ""}`}>
-      <button type="button" onClick={onClick} className="tag-pill-main">
-        {children}
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="tag-pill-delete"
-        aria-label="删除"
-      >
-        ×
-      </button>
-    </span>
-  );
-}
-
-function PreviewPanel({
-  promptPanelHeight,
-}: {
-  promptPanelHeight: number;
-}) {
-  const {
-    activeResult,
-    isGenerating,
-    generationPhase,
-  } = useImageState();
+function PreviewPanel({ promptPanelHeight }: { promptPanelHeight: number }) {
+  const { activeResult, isGenerating, generationPhase } = useImageState();
   const previewStyle =
     promptPanelHeight > 0
       ? ({
@@ -593,7 +1073,7 @@ function PreviewImage({ result }: { result: GeneratedImageResult }) {
   );
 }
 
-function HistoryPanel() {
+function HistoryPanel({ outputDirectory }: { outputDirectory: string }) {
   const { history, selectResult, clearHistory } = useImageState();
   const [columns, setColumns] = useState(1);
   const [lightboxResult, setLightboxResult] =
@@ -625,11 +1105,16 @@ function HistoryPanel() {
   }, []);
 
   if (history.length === 0) {
-    return <section className="min-h-36" />;
+    return (
+      <section className="history-section">
+        <p className="history-directory">历史记录 · {outputDirectory}</p>
+      </section>
+    );
   }
 
   return (
-    <section>
+    <section className="history-section">
+      <p className="history-directory">历史记录 · {outputDirectory}</p>
       <div
         className="history-grid"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
@@ -649,11 +1134,7 @@ function HistoryPanel() {
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={clearHistory}
-        className="clear-history"
-      >
+      <button type="button" onClick={clearHistory} className="clear-history">
         清空
       </button>
       {lightboxResult ? (
@@ -689,7 +1170,10 @@ function HistoryItem({
       className="history-item"
     >
       {result.status === "blocked" ? (
-        <span className="history-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+        <span
+          className="history-blocked"
+          style={{ aspectRatio: `${width} / ${height}` }}
+        >
           请求被内容安全策略拦截屏蔽
         </span>
       ) : (
@@ -736,7 +1220,10 @@ function readDraggedHistoryImage(dataTransfer: DataTransfer) {
   try {
     const parsed = JSON.parse(data) as Partial<DraggedHistoryImage>;
 
-    if (typeof parsed.imageUrl !== "string" || typeof parsed.fileName !== "string") {
+    if (
+      typeof parsed.imageUrl !== "string" ||
+      typeof parsed.fileName !== "string"
+    ) {
       return null;
     }
 
@@ -806,9 +1293,14 @@ function Lightbox({
       <div className="lightbox-layout">
         <div className="lightbox-image-wrap">
           {result.status === "blocked" ? (
-            <div className="lightbox-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+            <div
+              className="lightbox-blocked"
+              style={{ aspectRatio: `${width} / ${height}` }}
+            >
               <span>已屏蔽</span>
-              <span>{result.errorMessage ?? "内容安全策略未允许生成这张图片。"}</span>
+              <span>
+                {result.errorMessage ?? "内容安全策略未允许生成这张图片。"}
+              </span>
             </div>
           ) : (
             <Image
@@ -827,9 +1319,7 @@ function Lightbox({
               {result.errorMessage ?? "内容安全策略未允许生成这张图片。"}
             </p>
           ) : null}
-          <p className="lightbox-prompt">
-            {result.prompt}
-          </p>
+          <p className="lightbox-prompt">{result.prompt}</p>
           <div className="lightbox-facts">
             <span>{formatSizeLabel(result.size)}</span>
             <span>{result.quality}</span>
@@ -843,9 +1333,15 @@ function Lightbox({
   );
 }
 
-function distributeHistory(results: GeneratedImageResult[], columnCount: number) {
+function distributeHistory(
+  results: GeneratedImageResult[],
+  columnCount: number,
+) {
   const count = Math.max(1, columnCount);
-  const columns = Array.from({ length: count }, () => [] as GeneratedImageResult[]);
+  const columns = Array.from(
+    { length: count },
+    () => [] as GeneratedImageResult[],
+  );
   const heights = Array.from({ length: count }, () => 0);
 
   results.forEach((result) => {

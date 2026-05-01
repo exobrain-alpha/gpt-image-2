@@ -1,5 +1,6 @@
 import { ImageWorkbench } from "./components/image-workbench";
+import { getOutputDirectory } from "@/lib/output-directory";
 
 export default function Home() {
-  return <ImageWorkbench />;
+  return <ImageWorkbench outputDirectory={getOutputDirectory()} />;
 }

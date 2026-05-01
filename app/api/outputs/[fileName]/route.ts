@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { getOutputDirectory } from "@/lib/output-directory";
 
 export const runtime = "nodejs";
 
-const outputDirectory = path.join(process.cwd(), "outputs");
+const outputDirectory = getOutputDirectory();
 const contentTypes: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
