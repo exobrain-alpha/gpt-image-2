@@ -3,6 +3,8 @@
 import Image from "next/image";
 import {
   type CSSProperties,
+  type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -24,6 +26,11 @@ import {
 import { ImageProvider, useImageState } from "./image-state";
 
 const historyDragDataType = "application/x-gpt-image-history";
+
+type PromptAssistantMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 export function ImageWorkbench() {
   const promptPanelRef = useRef<HTMLElement | null>(null);
@@ -83,7 +90,6 @@ function PromptPanel({
     tags,
     activeTags,
     applyTag,
-    addTag,
     deleteTag,
     generateImage,
     startAutoGeneration,
@@ -95,10 +101,10 @@ function PromptPanel({
     rateLimitWaitSeconds,
     error,
   } = useImageState();
-  const [newTag, setNewTag] = useState("");
   const [isDraggingReference, setIsDraggingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = getImageDimensions(size);
   const widthOptions = useMemo(() => getLegalWidthsForHeight(height), [height]);
@@ -166,6 +172,15 @@ function PromptPanel({
         placeholder="Prompt"
         className="prompt-input"
       />
+
+      <button
+        type="button"
+        className="assistant-command"
+        onClick={() => setIsAssistantOpen(true)}
+        disabled={prompt.trim().length < 2}
+      >
+        智能提示词
+      </button>
 
       <div className="size-controls">
         <label className="dimension-field">
@@ -236,30 +251,6 @@ function PromptPanel({
         ))}
       </div>
 
-      <form
-        className="tag-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          addTag(newTag)
-            .then(() => setNewTag(""))
-            .catch(() => setNewTag(""));
-        }}
-      >
-        <input
-          value={newTag}
-          onChange={(event) => setNewTag(event.target.value)}
-          placeholder="新增常用词"
-          className="tag-input"
-        />
-        <button
-          type="submit"
-          className="small-command"
-          disabled={!newTag.trim()}
-        >
-          添加
-        </button>
-      </form>
-
       <div className="reference-zone">
         <input
           ref={fileInputRef}
@@ -323,6 +314,17 @@ function PromptPanel({
         />
       ) : null}
 
+      {isAssistantOpen ? (
+        <PromptAssistantDialog
+          initialTopic={prompt}
+          onCancel={() => setIsAssistantOpen(false)}
+          onApply={(nextPrompt) => {
+            setPrompt(nextPrompt);
+            setIsAssistantOpen(false);
+          }}
+        />
+      ) : null}
+
       {error || referenceError ? (
         <p className="error-text">{error ?? referenceError}</p>
       ) : null}
@@ -360,6 +362,192 @@ function PromptPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function PromptAssistantDialog({
+  initialTopic,
+  onApply,
+  onCancel,
+}: {
+  initialTopic: string;
+  onApply: (prompt: string) => void;
+  onCancel: () => void;
+}) {
+  const normalizedInitialTopic = initialTopic.trim();
+  const [messages, setMessages] = useState<PromptAssistantMessage[]>(
+    normalizedInitialTopic
+      ? [{ role: "user", content: normalizedInitialTopic }]
+      : [],
+  );
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const didSendInitialMessageRef = useRef(false);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const latestPrompt = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
+
+  const sendMessages = useCallback(async (nextMessages: PromptAssistantMessage[]) => {
+    setIsSending(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/prompt-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: nextMessages }),
+      });
+      const data = (await response.json()) as {
+        prompt?: string;
+        error?: string;
+      };
+
+      if (!response.ok || typeof data.prompt !== "string") {
+        throw new Error(data.error ?? "智能提示词生成失败。");
+      }
+
+      const assistantPrompt = data.prompt.trim();
+
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: assistantPrompt },
+      ]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "智能提示词生成失败。");
+    } finally {
+      setIsSending(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (didSendInitialMessageRef.current || !normalizedInitialTopic) {
+      return;
+    }
+
+    didSendInitialMessageRef.current = true;
+    void sendMessages([{ role: "user", content: normalizedInitialTopic }]);
+  }, [normalizedInitialTopic, sendMessages]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  useEffect(() => {
+    messageListRef.current?.scrollTo({
+      top: messageListRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, isSending]);
+
+  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const normalizedDraft = draft.trim();
+
+    if (!normalizedDraft || isSending) {
+      return;
+    }
+
+    const nextMessages: PromptAssistantMessage[] = [
+      ...messages,
+      { role: "user", content: normalizedDraft },
+    ];
+
+    setMessages(nextMessages);
+    setDraft("");
+    void sendMessages(nextMessages);
+  };
+
+  return (
+    <div className="assistant-layer" role="presentation" onClick={onCancel}>
+      <section
+        className="assistant-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assistant-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="assistant-header">
+          <div>
+            <h2 id="assistant-title">智能提示词</h2>
+            <span>claude-opus-4-7</span>
+          </div>
+          <button
+            type="button"
+            className="assistant-close"
+            onClick={onCancel}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+
+        <div ref={messageListRef} className="assistant-messages">
+          {messages.map((message, index) => (
+            <article
+              key={`${message.role}-${index}`}
+              className={`assistant-message assistant-message-${message.role}`}
+            >
+              <span>{message.role === "assistant" ? "AI" : "你"}</span>
+              <p>{message.content}</p>
+              {message.role === "assistant" ? (
+                <div className="assistant-message-actions">
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard.writeText(message.content)}
+                  >
+                    复制
+                  </button>
+                  <button type="button" onClick={() => onApply(message.content)}>
+                    应用
+                  </button>
+                </div>
+              ) : null}
+            </article>
+          ))}
+          {isSending ? (
+            <article className="assistant-message assistant-message-assistant">
+              <span>AI</span>
+              <p>生成中...</p>
+            </article>
+          ) : null}
+        </div>
+
+        {error ? <p className="assistant-error">{error}</p> : null}
+
+        <form className="assistant-input-row" onSubmit={submitMessage}>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="继续调整提示词"
+            rows={2}
+          />
+          <button type="submit" disabled={isSending || !draft.trim()}>
+            发送
+          </button>
+        </form>
+
+        {latestPrompt ? (
+          <button
+            type="button"
+            className="assistant-apply-latest"
+            onClick={() => onApply(latestPrompt)}
+          >
+            应用最新提示词
+          </button>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
