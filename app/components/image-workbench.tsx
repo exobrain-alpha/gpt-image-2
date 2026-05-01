@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  ArrowUpCircleIcon,
-  StopCircleIcon,
-} from "@heroicons/react/24/solid";
+import { ArrowUpCircleIcon, StopCircleIcon } from "@heroicons/react/24/solid";
 import Image from "next/image";
 import {
   type CSSProperties,
@@ -182,9 +179,7 @@ function PromptPanel({
 
   return (
     <section ref={panelRef} className="prompt-zone">
-      <h1 className="product-title">
-        GPT-Image-2
-      </h1>
+      <h1 className="product-title">GPT-Image-2</h1>
 
       <textarea
         value={prompt}
@@ -521,50 +516,55 @@ function PromptAssistantDialog({
     };
   }, []);
 
-  const sendMessages = useCallback(async (nextMessages: PromptAssistantMessage[]) => {
-    const abortController = new AbortController();
+  const sendMessages = useCallback(
+    async (nextMessages: PromptAssistantMessage[]) => {
+      const abortController = new AbortController();
 
-    activeRequestControllerRef.current = abortController;
-    setIsSending(true);
-    setError(null);
+      activeRequestControllerRef.current = abortController;
+      setIsSending(true);
+      setError(null);
 
-    try {
-      const response = await fetch("/api/prompt-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages }),
-        signal: abortController.signal,
-      });
-      const data = (await response.json()) as {
-        prompt?: string;
-        error?: string;
-      };
+      try {
+        const response = await fetch("/api/prompt-assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: nextMessages }),
+          signal: abortController.signal,
+        });
+        const data = (await response.json()) as {
+          prompt?: string;
+          error?: string;
+        };
 
-      if (!response.ok || typeof data.prompt !== "string") {
-        throw new Error(data.error ?? "智能提示词生成失败。");
+        if (!response.ok || typeof data.prompt !== "string") {
+          throw new Error(data.error ?? "智能提示词生成失败。");
+        }
+
+        const assistantPrompt = data.prompt.trim();
+
+        setMessages((current) => [
+          ...current,
+          { role: "assistant", content: assistantPrompt },
+        ]);
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          setError(null);
+          return;
+        }
+
+        setError(
+          caught instanceof Error ? caught.message : "智能提示词生成失败。",
+        );
+      } finally {
+        if (activeRequestControllerRef.current === abortController) {
+          activeRequestControllerRef.current = null;
+        }
+
+        setIsSending(false);
       }
-
-      const assistantPrompt = data.prompt.trim();
-
-      setMessages((current) => [
-        ...current,
-        { role: "assistant", content: assistantPrompt },
-      ]);
-    } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") {
-        setError(null);
-        return;
-      }
-
-      setError(caught instanceof Error ? caught.message : "智能提示词生成失败。");
-    } finally {
-      if (activeRequestControllerRef.current === abortController) {
-        activeRequestControllerRef.current = null;
-      }
-
-      setIsSending(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   const stopSending = useCallback(() => {
     activeRequestControllerRef.current?.abort();
@@ -672,7 +672,10 @@ function PromptAssistantDialog({
                 <footer className="assistant-message-actions">
                   <CopyPromptButton content={message.content} />
                   {message.role === "assistant" ? (
-                    <button type="button" onClick={() => onApply(message.content)}>
+                    <button
+                      type="button"
+                      onClick={() => onApply(message.content)}
+                    >
                       应用
                     </button>
                   ) : null}
@@ -808,7 +811,11 @@ function PromptAssistantHistoryDialog({
         }
       } catch (caught) {
         if (isActive) {
-          setError(caught instanceof Error ? caught.message : "无法读取智能提示词历史。");
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "无法读取智能提示词历史。",
+          );
         }
       } finally {
         if (isActive) {
@@ -874,7 +881,9 @@ function PromptAssistantHistoryDialog({
           {sessions.map((session) => (
             <details key={session.id} className="assistant-history-item">
               <summary>
-                <span>{session.mode === "create" ? "智能提示词" : "调整提示词"}</span>
+                <span>
+                  {session.mode === "create" ? "智能提示词" : "调整提示词"}
+                </span>
                 <strong>{getSessionSummary(session)}</strong>
                 <time>{session.updatedAt || session.createdAt}</time>
               </summary>
@@ -985,16 +994,8 @@ function OptionButton({
   );
 }
 
-function PreviewPanel({
-  promptPanelHeight,
-}: {
-  promptPanelHeight: number;
-}) {
-  const {
-    activeResult,
-    isGenerating,
-    generationPhase,
-  } = useImageState();
+function PreviewPanel({ promptPanelHeight }: { promptPanelHeight: number }) {
+  const { activeResult, isGenerating, generationPhase } = useImageState();
   const previewStyle =
     promptPanelHeight > 0
       ? ({
@@ -1133,11 +1134,7 @@ function HistoryPanel({ outputDirectory }: { outputDirectory: string }) {
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={clearHistory}
-        className="clear-history"
-      >
+      <button type="button" onClick={clearHistory} className="clear-history">
         清空
       </button>
       {lightboxResult ? (
@@ -1173,7 +1170,10 @@ function HistoryItem({
       className="history-item"
     >
       {result.status === "blocked" ? (
-        <span className="history-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+        <span
+          className="history-blocked"
+          style={{ aspectRatio: `${width} / ${height}` }}
+        >
           请求被内容安全策略拦截屏蔽
         </span>
       ) : (
@@ -1220,7 +1220,10 @@ function readDraggedHistoryImage(dataTransfer: DataTransfer) {
   try {
     const parsed = JSON.parse(data) as Partial<DraggedHistoryImage>;
 
-    if (typeof parsed.imageUrl !== "string" || typeof parsed.fileName !== "string") {
+    if (
+      typeof parsed.imageUrl !== "string" ||
+      typeof parsed.fileName !== "string"
+    ) {
       return null;
     }
 
@@ -1290,9 +1293,14 @@ function Lightbox({
       <div className="lightbox-layout">
         <div className="lightbox-image-wrap">
           {result.status === "blocked" ? (
-            <div className="lightbox-blocked" style={{ aspectRatio: `${width} / ${height}` }}>
+            <div
+              className="lightbox-blocked"
+              style={{ aspectRatio: `${width} / ${height}` }}
+            >
               <span>已屏蔽</span>
-              <span>{result.errorMessage ?? "内容安全策略未允许生成这张图片。"}</span>
+              <span>
+                {result.errorMessage ?? "内容安全策略未允许生成这张图片。"}
+              </span>
             </div>
           ) : (
             <Image
@@ -1311,9 +1319,7 @@ function Lightbox({
               {result.errorMessage ?? "内容安全策略未允许生成这张图片。"}
             </p>
           ) : null}
-          <p className="lightbox-prompt">
-            {result.prompt}
-          </p>
+          <p className="lightbox-prompt">{result.prompt}</p>
           <div className="lightbox-facts">
             <span>{formatSizeLabel(result.size)}</span>
             <span>{result.quality}</span>
@@ -1327,9 +1333,15 @@ function Lightbox({
   );
 }
 
-function distributeHistory(results: GeneratedImageResult[], columnCount: number) {
+function distributeHistory(
+  results: GeneratedImageResult[],
+  columnCount: number,
+) {
   const count = Math.max(1, columnCount);
-  const columns = Array.from({ length: count }, () => [] as GeneratedImageResult[]);
+  const columns = Array.from(
+    { length: count },
+    () => [] as GeneratedImageResult[],
+  );
   const heights = Array.from({ length: count }, () => 0);
 
   results.forEach((result) => {
