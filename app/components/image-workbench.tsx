@@ -43,6 +43,14 @@ type PromptAssistantDialogState = {
   mode: "create" | "adjust";
 };
 
+type PromptAssistantSession = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  mode: "create" | "adjust";
+  messages: PromptAssistantMessage[];
+};
+
 export function ImageWorkbench({
   outputDirectory,
 }: {
@@ -116,6 +124,7 @@ function PromptPanel({
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [assistantDialogState, setAssistantDialogState] =
     useState<PromptAssistantDialogState | null>(null);
+  const [isAssistantHistoryOpen, setIsAssistantHistoryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = getImageDimensions(size);
   const widthOptions = useMemo(() => getLegalWidthsForHeight(height), [height]);
@@ -213,6 +222,15 @@ function PromptPanel({
           disabled={!prompt.trim()}
         >
           调整提示词
+        </button>
+        <button
+          type="button"
+          className="assistant-history-command"
+          onClick={() => setIsAssistantHistoryOpen(true)}
+          aria-label="查看智能提示词历史"
+          title="历史会话"
+        >
+          历史提示词
         </button>
       </div>
 
@@ -335,6 +353,16 @@ function PromptPanel({
         />
       ) : null}
 
+      {isAssistantHistoryOpen ? (
+        <PromptAssistantHistoryDialog
+          onCancel={() => setIsAssistantHistoryOpen(false)}
+          onApply={(nextPrompt) => {
+            setPrompt(nextPrompt);
+            setIsAssistantHistoryOpen(false);
+          }}
+        />
+      ) : null}
+
       {error || referenceError ? (
         <p className="error-text">{error ?? referenceError}</p>
       ) : null}
@@ -398,8 +426,11 @@ function PromptAssistantDialog({
   );
   const [draft, setDraft] = useState(initialDraft);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const didSendInitialMessageRef = useRef(false);
+  const isCreatingSessionRef = useRef(false);
+  const isAssistantDialogMountedRef = useRef(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
@@ -410,6 +441,85 @@ function PromptAssistantDialog({
     mode === "create" && messages.length === 0
       ? "请填写提示词或主题"
       : "请输入要调整的内容或补充优化要求";
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    const abortController = new AbortController();
+
+    if (!sessionId) {
+      if (isCreatingSessionRef.current) {
+        return;
+      }
+
+      isCreatingSessionRef.current = true;
+
+      void fetch("/api/prompt-assistant/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          mode,
+          messages,
+        }),
+      })
+        .then(async (response) => {
+          const data = (await response.json()) as {
+            session?: PromptAssistantSession;
+            error?: string;
+          };
+
+          if (!response.ok || !data.session?.id) {
+            throw new Error(data.error ?? "无法创建智能提示词历史文件。");
+          }
+
+          if (isAssistantDialogMountedRef.current) {
+            setSessionId(data.session.id);
+          }
+        })
+        .catch((caught) => {
+          if (isAssistantDialogMountedRef.current) {
+            setError(
+              caught instanceof Error
+                ? caught.message
+                : "无法创建智能提示词历史文件。",
+            );
+          }
+        })
+        .finally(() => {
+          isCreatingSessionRef.current = false;
+        });
+
+      return;
+    }
+
+    void fetch("/api/prompt-assistant/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "update",
+        id: sessionId,
+        mode,
+        messages,
+      }),
+      signal: abortController.signal,
+    }).catch(() => {
+      if (!abortController.signal.aborted) {
+        setError("无法保存智能提示词历史。");
+      }
+    });
+
+    return () => abortController.abort();
+  }, [messages, mode, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      isAssistantDialogMountedRef.current = false;
+      activeRequestControllerRef.current?.abort();
+    };
+  }, []);
 
   const sendMessages = useCallback(async (nextMessages: PromptAssistantMessage[]) => {
     const abortController = new AbortController();
@@ -490,10 +600,6 @@ function PromptAssistantDialog({
   }, []);
 
   useEffect(() => {
-    return () => activeRequestControllerRef.current?.abort();
-  }, []);
-
-  useEffect(() => {
     messageListRef.current?.scrollTo({
       top: messageListRef.current.scrollHeight,
       behavior: "smooth",
@@ -564,12 +670,7 @@ function PromptAssistantDialog({
               <div className="assistant-message-bubble">
                 <p>{message.content}</p>
                 <footer className="assistant-message-actions">
-                  <button
-                    type="button"
-                    onClick={() => void navigator.clipboard.writeText(message.content)}
-                  >
-                    复制
-                  </button>
+                  <CopyPromptButton content={message.content} />
                   {message.role === "assistant" ? (
                     <button type="button" onClick={() => onApply(message.content)}>
                       应用
@@ -636,6 +737,188 @@ function PromptAssistantDialog({
       </section>
     </div>
   );
+}
+
+function CopyPromptButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const copyContent = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+
+    if (resetTimerRef.current) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimerRef.current = null;
+    }, 1400);
+  };
+
+  return (
+    <button
+      type="button"
+      className={copied ? "assistant-copy-command-copied" : undefined}
+      onClick={() => void copyContent()}
+      aria-live="polite"
+    >
+      {copied ? "已复制" : "复制"}
+    </button>
+  );
+}
+
+function PromptAssistantHistoryDialog({
+  onApply,
+  onCancel,
+}: {
+  onApply: (prompt: string) => void;
+  onCancel: () => void;
+}) {
+  const [sessions, setSessions] = useState<PromptAssistantSession[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadSessions = async () => {
+      try {
+        const response = await fetch("/api/prompt-assistant/sessions");
+        const data = (await response.json()) as {
+          sessions?: PromptAssistantSession[];
+          error?: string;
+        };
+
+        if (!response.ok || !Array.isArray(data.sessions)) {
+          throw new Error(data.error ?? "无法读取智能提示词历史。");
+        }
+
+        if (isActive) {
+          setSessions(data.sessions);
+        }
+      } catch (caught) {
+        if (isActive) {
+          setError(caught instanceof Error ? caught.message : "无法读取智能提示词历史。");
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadSessions();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="assistant-layer assistant-history-layer"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <section
+        className="assistant-history-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assistant-history-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="assistant-header">
+          <div>
+            <h2 id="assistant-history-title">历史对话</h2>
+          </div>
+          <button
+            type="button"
+            className="assistant-close"
+            onClick={onCancel}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="assistant-history-list">
+          {isLoading ? (
+            <p className="assistant-history-empty">读取中...</p>
+          ) : null}
+          {error ? <p className="assistant-error">{error}</p> : null}
+          {!isLoading && !error && sessions.length === 0 ? (
+            <p className="assistant-history-empty">暂无历史会话</p>
+          ) : null}
+          {sessions.map((session) => (
+            <details key={session.id} className="assistant-history-item">
+              <summary>
+                <span>{session.mode === "create" ? "智能提示词" : "调整提示词"}</span>
+                <strong>{getSessionSummary(session)}</strong>
+                <time>{session.updatedAt || session.createdAt}</time>
+              </summary>
+              <div className="assistant-history-messages">
+                {session.messages.map((message, index) => (
+                  <article
+                    key={`${session.id}-${message.role}-${index}`}
+                    className={`assistant-message assistant-message-${message.role}`}
+                  >
+                    <span>{message.role === "assistant" ? "AI" : "你"}</span>
+                    <div className="assistant-message-bubble">
+                      <p>{message.content}</p>
+                      <footer className="assistant-message-actions">
+                        <CopyPromptButton content={message.content} />
+                        {message.role === "assistant" ? (
+                          <button
+                            type="button"
+                            onClick={() => onApply(message.content)}
+                          >
+                            应用
+                          </button>
+                        ) : null}
+                      </footer>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getSessionSummary(session: PromptAssistantSession) {
+  const content =
+    [...session.messages]
+      .reverse()
+      .find((message) => message.role === "assistant")?.content ??
+    session.messages[0]?.content ??
+    "空会话";
+
+  return content.length > 64 ? `${content.slice(0, 64)}...` : content;
 }
 
 function buildPromptAdjustmentDraft(prompt: string) {
