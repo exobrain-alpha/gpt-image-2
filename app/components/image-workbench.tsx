@@ -102,10 +102,6 @@ function PromptPanel({
     setOutputFormat,
     referenceImage,
     setReferenceImage,
-    tags,
-    activeTags,
-    applyTag,
-    deleteTag,
     generateImage,
     startAutoGeneration,
     stopAutoGeneration,
@@ -118,7 +114,6 @@ function PromptPanel({
   } = useImageState();
   const [isDraggingReference, setIsDraggingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string | null>(null);
-  const [tagPendingDelete, setTagPendingDelete] = useState<string | null>(null);
   const [assistantDialogState, setAssistantDialogState] =
     useState<PromptAssistantDialogState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -255,42 +250,27 @@ function PromptPanel({
       <div className="format-controls">
         <div className="inline-option-group">
           {imageQualities.map((nextQuality) => (
-            <TagButton
+            <OptionButton
               key={nextQuality}
               active={quality === nextQuality}
               onClick={() => setQuality(nextQuality)}
             >
               {qualityLabel(nextQuality)}
-            </TagButton>
+            </OptionButton>
           ))}
         </div>
         <div className="inline-option-group">
           {imageFormats.map((format) => (
-            <TagButton
+            <OptionButton
               key={format}
               active={outputFormat === format}
               onClick={() => setOutputFormat(format)}
             >
               {format.toUpperCase()}
-            </TagButton>
+            </OptionButton>
           ))}
         </div>
       </div>
-
-      {tags.length > 0 ? (
-        <div className="tag-cloud">
-          {tags.map((tag) => (
-            <DeletableTag
-              key={tag}
-              active={activeTags.includes(tag)}
-              onClick={() => applyTag(tag)}
-              onDelete={() => setTagPendingDelete(tag)}
-            >
-              {tag}
-            </DeletableTag>
-          ))}
-        </div>
-      ) : null}
 
       <div className="reference-zone">
         <input
@@ -340,20 +320,6 @@ function PromptPanel({
           </button>
         ) : null}
       </div>
-
-      {tagPendingDelete ? (
-        <ConfirmDialog
-          title="删除标签"
-          message={`删除「${tagPendingDelete}」？`}
-          confirmText="删除"
-          cancelText="取消"
-          onCancel={() => setTagPendingDelete(null)}
-          onConfirm={() => {
-            void deleteTag(tagPendingDelete);
-            setTagPendingDelete(null);
-          }}
-        />
-      ) : null}
 
       {assistantDialogState ? (
         <PromptAssistantDialog
@@ -716,58 +682,7 @@ function GenerateButtonLabel({
   return <span>生成图片</span>;
 }
 
-function ConfirmDialog({
-  title,
-  message,
-  confirmText,
-  cancelText,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  message: string;
-  confirmText: string;
-  cancelText: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
-  return (
-    <div className="confirm-layer" role="presentation" onClick={onCancel}>
-      <section
-        className="confirm-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 id="confirm-title">{title}</h2>
-        <p>{message}</p>
-        <div className="confirm-actions">
-          <button type="button" className="confirm-cancel" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button type="button" className="confirm-danger" onClick={onConfirm}>
-            {confirmText}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function TagButton({
+function OptionButton({
   active,
   onClick,
   children,
@@ -780,48 +695,10 @@ function TagButton({
     <button
       type="button"
       onClick={onClick}
-      className={`tag-button ${active ? "tag-button-active" : ""}`}
+      className={`option-button ${active ? "option-button-active" : ""}`}
     >
       {children}
     </button>
-  );
-}
-
-function DeletableTag({
-  active,
-  canDelete = true,
-  onClick,
-  onDelete,
-  children,
-}: {
-  active: boolean;
-  canDelete?: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-  children: ReactNode;
-}) {
-  if (!canDelete) {
-    return (
-      <TagButton active={active} onClick={onClick}>
-        {children}
-      </TagButton>
-    );
-  }
-
-  return (
-    <span className={`tag-pill ${active ? "tag-pill-active" : ""}`}>
-      <button type="button" onClick={onClick} className="tag-pill-main">
-        {children}
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="tag-pill-delete"
-        aria-label="删除"
-      >
-        ×
-      </button>
-    </span>
   );
 }
 

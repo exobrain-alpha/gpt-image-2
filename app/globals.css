@@ -151,12 +151,6 @@ button:disabled {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.tag-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .size-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
@@ -263,7 +257,7 @@ button:disabled {
   gap: 8px;
 }
 
-.tag-button {
+.option-button {
   border: 1px solid rgba(20, 19, 24, 0.1);
   border-radius: 999px;
   padding: 8px 13px;
@@ -285,7 +279,7 @@ button:disabled {
     border-color 160ms ease;
 }
 
-.tag-button:hover {
+.option-button:hover {
   transform: translateY(-1px);
   color: var(--ink);
   border-color: rgba(111, 92, 255, 0.32);
@@ -294,7 +288,7 @@ button:disabled {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.tag-button-active {
+.option-button-active {
   color: white;
   border-color: transparent;
   background: linear-gradient(
@@ -306,182 +300,6 @@ button:disabled {
   box-shadow:
     0 18px 46px rgba(111, 92, 255, 0.26),
     0 8px 22px rgba(20, 19, 24, 0.18);
-}
-
-.tag-pill {
-  display: inline-flex;
-  align-items: center;
-  overflow: hidden;
-  border: 1px solid rgba(20, 19, 24, 0.1);
-  border-radius: 999px;
-  color: rgba(20, 19, 24, 0.72);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.86),
-    rgba(255, 255, 255, 0.62)
-  );
-  box-shadow:
-    0 10px 28px rgba(20, 19, 24, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transition:
-    transform 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease,
-    border-color 160ms ease;
-}
-
-.tag-pill:hover {
-  transform: translateY(-1px);
-  color: var(--ink);
-  border-color: rgba(111, 92, 255, 0.32);
-  box-shadow:
-    0 16px 38px rgba(20, 19, 24, 0.11),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.tag-pill-active {
-  color: white;
-  border-color: transparent;
-  background: linear-gradient(
-    105deg,
-    var(--accent-a),
-    #332b7d 46%,
-    #0f172a 100%
-  );
-  box-shadow:
-    0 18px 46px rgba(111, 92, 255, 0.26),
-    0 8px 22px rgba(20, 19, 24, 0.18);
-}
-
-.tag-pill-main,
-.tag-pill-delete {
-  border: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.tag-pill-main {
-  padding: 8px 9px 8px 13px;
-  font-size: 0.875rem;
-  font-weight: 650;
-}
-
-.tag-pill-delete {
-  align-self: stretch;
-  padding: 0 10px 0 6px;
-  font-size: 1rem;
-  line-height: 1;
-  opacity: 0.54;
-  transition: opacity 160ms ease;
-}
-
-.tag-pill-delete:hover {
-  opacity: 1;
-}
-
-.confirm-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background:
-    linear-gradient(120deg, rgba(111, 92, 255, 0.08), transparent 34%),
-    rgba(251, 251, 253, 0.72);
-  backdrop-filter: blur(18px);
-}
-
-.confirm-dialog {
-  width: min(100%, 420px);
-  border: 1px solid rgba(20, 19, 24, 0.1);
-  border-radius: 26px;
-  padding: 24px;
-  color: var(--ink);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.88),
-    rgba(255, 255, 255, 0.68)
-  );
-  box-shadow:
-    0 30px 80px rgba(20, 19, 24, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.confirm-dialog h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 760;
-}
-
-.confirm-dialog p {
-  margin: 12px 0 0;
-  color: rgba(20, 19, 24, 0.62);
-  line-height: 1.7;
-}
-
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 24px;
-}
-
-.confirm-cancel,
-.confirm-danger {
-  min-width: 88px;
-  height: 42px;
-  border: 0;
-  border-radius: 14px;
-  font-weight: 720;
-  transition:
-    transform 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease;
-}
-
-.confirm-cancel {
-  color: rgba(20, 19, 24, 0.68);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 12px 28px rgba(20, 19, 24, 0.08);
-}
-
-.confirm-danger {
-  color: white;
-  background: linear-gradient(105deg, #ff4f8b, #7c2d5b);
-  box-shadow: 0 16px 36px rgba(255, 79, 139, 0.22);
-}
-
-.confirm-cancel:hover,
-.confirm-danger:hover {
-  transform: translateY(-1px);
-}
-
-.tag-form {
-  display: flex;
-  gap: 10px;
-}
-
-.tag-input {
-  min-width: 0;
-  flex: 1;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 11px 14px;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: 0 14px 38px rgba(20, 19, 24, 0.07);
-  outline: none;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.tag-input:focus {
-  border-color: rgba(0, 184, 169, 0.48);
-  box-shadow:
-    0 18px 48px rgba(20, 19, 24, 0.1),
-    0 0 0 4px rgba(0, 184, 169, 0.1);
 }
 
 .small-command,
@@ -1292,10 +1110,6 @@ button:disabled {
   .assistant-command,
   .assistant-adjust-command {
     width: 100%;
-  }
-
-  .tag-form {
-    flex-direction: column;
   }
 
   .generation-actions {
