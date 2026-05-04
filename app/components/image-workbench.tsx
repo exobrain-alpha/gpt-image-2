@@ -429,9 +429,6 @@ function PromptAssistantDialog({
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
-  const latestPrompt = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.content;
   const draftPlaceholder =
     mode === "create" && messages.length === 0
       ? "请填写提示词或主题"
@@ -722,16 +719,6 @@ function PromptAssistantDialog({
             </footer>
           </div>
         </form>
-
-        {latestPrompt ? (
-          <button
-            type="button"
-            className="assistant-apply-latest"
-            onClick={() => onApply(latestPrompt)}
-          >
-            应用最新提示词
-          </button>
-        ) : null}
       </section>
     </div>
   );
