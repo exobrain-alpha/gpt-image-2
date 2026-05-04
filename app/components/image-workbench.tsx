@@ -899,11 +899,11 @@ function PromptAssistantHistoryDialog({
                   }
                   aria-expanded={isExpanded}
                 >
-                <span>
-                  {session.mode === "create" ? "智能提示词" : "调整提示词"}
-                </span>
-                <strong>{getSessionSummary(session)}</strong>
-                <time>{session.updatedAt || session.createdAt}</time>
+                  <span>
+                    {session.mode === "create" ? "智能提示词" : "调整提示词"}
+                  </span>
+                  <strong>{getSessionSummary(session)}</strong>
+                  <time>{session.updatedAt || session.createdAt}</time>
                 </button>
                 {isExpanded ? (
                   <div className="assistant-history-messages">
@@ -912,7 +912,9 @@ function PromptAssistantHistoryDialog({
                         key={`${session.id}-${message.role}-${index}`}
                         className={`assistant-message assistant-message-${message.role}`}
                       >
-                        <span>{message.role === "assistant" ? "AI" : "你"}</span>
+                        <span>
+                          {message.role === "assistant" ? "AI" : "你"}
+                        </span>
                         <div className="assistant-message-bubble">
                           <p>{message.content}</p>
                           <footer className="assistant-message-actions">

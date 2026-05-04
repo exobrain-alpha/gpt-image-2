@@ -9,7 +9,6 @@ import {
   isValidImageSize,
   type GenerateImageRequest,
 } from "@/lib/image-options";
-import { getOutputDirectory } from "@/lib/output-directory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -72,8 +71,7 @@ export async function POST(request: Request) {
     process.env.AZURE_OPENAI_API_KEY ?? process.env.AZURE_AI_API_KEY;
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_NAME ?? defaultDeployment;
-  const apiVersion =
-    process.env.AZURE_OPENAI_API_VERSION ?? defaultApiVersion;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? defaultApiVersion;
 
   if (!endpoint || !apiKey) {
     return NextResponse.json(
@@ -96,7 +94,11 @@ export async function POST(request: Request) {
   let response: Response;
 
   try {
-    const azureRequest = buildAzureImageRequest(payload, apiKey, referenceImage);
+    const azureRequest = buildAzureImageRequest(
+      payload,
+      apiKey,
+      referenceImage,
+    );
 
     response = await fetch(url, {
       method: "POST",
@@ -115,9 +117,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const responseBody = (await response.json().catch(() => null)) as
-    | AzureImageResponse
-    | null;
+  const responseBody = (await response
+    .json()
+    .catch(() => null)) as AzureImageResponse | null;
 
   if (!response.ok || responseBody?.error) {
     const friendlyError = getFriendlyAzureError(
@@ -129,8 +131,7 @@ export async function POST(request: Request) {
     );
     const azureCode = responseBody?.error?.code;
     const deploymentNotFound =
-      response.status === 404 ||
-      azureCode === "DeploymentNotFound";
+      response.status === 404 || azureCode === "DeploymentNotFound";
 
     return NextResponse.json(
       {
@@ -139,7 +140,9 @@ export async function POST(request: Request) {
         type: responseBody?.error?.type,
         innerCode: responseBody?.error?.inner_error?.code,
       },
-      { status: deploymentNotFound ? 404 : response.ok ? 502 : response.status },
+      {
+        status: deploymentNotFound ? 404 : response.ok ? 502 : response.status,
+      },
     );
   }
 
@@ -178,19 +181,19 @@ function buildGenerationUrl(
   deployment: string,
   apiVersion: string,
 ) {
-  const normalizedEndpoint = endpoint.endsWith("/")
-    ? endpoint
-    : `${endpoint}/`;
+  const normalizedEndpoint = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
 
   return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
     deployment,
   )}/images/generations?api-version=${encodeURIComponent(apiVersion)}`;
 }
 
-function buildEditUrl(endpoint: string, deployment: string, apiVersion: string) {
-  const normalizedEndpoint = endpoint.endsWith("/")
-    ? endpoint
-    : `${endpoint}/`;
+function buildEditUrl(
+  endpoint: string,
+  deployment: string,
+  apiVersion: string,
+) {
+  const normalizedEndpoint = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
 
   return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
     deployment,
@@ -314,7 +317,10 @@ async function buildImageResult(
   return result;
 }
 
-async function saveReferenceImage(referenceImage: ReferenceImageInput, id: string) {
+async function saveReferenceImage(
+  referenceImage: ReferenceImageInput,
+  id: string,
+) {
   const originalFileName = path.basename(
     referenceImage.fileName || "reference-image",
   );
@@ -352,17 +358,18 @@ function getExtensionForContentType(contentType: string) {
   return "";
 }
 
-async function readAndValidateRequest(request: Request): Promise<
-  | { ok: true; value: ValidatedGenerateRequest }
-  | { ok: false; error: string }
+async function readAndValidateRequest(
+  request: Request,
+): Promise<
+  { ok: true; value: ValidatedGenerateRequest } | { ok: false; error: string }
 > {
   if (request.headers.get("content-type")?.includes("multipart/form-data")) {
     return readAndValidateMultipartRequest(request);
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | ImageRequestInput
-    | null;
+  const body = (await request
+    .json()
+    .catch(() => null)) as ImageRequestInput | null;
 
   const validation = validateImageRequestBody(body);
 
@@ -378,9 +385,10 @@ async function readAndValidateRequest(request: Request): Promise<
   };
 }
 
-async function readAndValidateMultipartRequest(request: Request): Promise<
-  | { ok: true; value: ValidatedGenerateRequest }
-  | { ok: false; error: string }
+async function readAndValidateMultipartRequest(
+  request: Request,
+): Promise<
+  { ok: true; value: ValidatedGenerateRequest } | { ok: false; error: string }
 > {
   const formData = await request.formData().catch(() => null);
 
@@ -497,10 +505,7 @@ function getFriendlyAzureError(
   const message = error?.message ?? "";
   const normalized = `${code} ${innerCode} ${message}`.toLowerCase();
 
-  if (
-    status === 404 ||
-    code === "DeploymentNotFound"
-  ) {
+  if (status === 404 || code === "DeploymentNotFound") {
     return `找不到 Azure OpenAI deployment：${deployment}。当前使用 ${endpointKind} endpoint，api-version=${apiVersion}。请检查 deployment 名称、endpoint 类型和 API 版本。`;
   }
 
