@@ -7,12 +7,22 @@ export function getOutputDirectory() {
     return path.join(process.cwd(), "outputs");
   }
 
-  if (path.isAbsolute(configuredDirectory)) {
-    return configuredDirectory;
+  const resolvedDirectory = path.isAbsolute(configuredDirectory)
+    ? configuredDirectory
+    : path.join(
+        /* turbopackIgnore: true */ process.cwd(),
+        configuredDirectory,
+      );
+
+  return ensureOutputsDirectory(resolvedDirectory);
+}
+
+function ensureOutputsDirectory(directory: string) {
+  const normalizedDirectory = path.normalize(directory);
+
+  if (path.basename(normalizedDirectory) === "outputs") {
+    return normalizedDirectory;
   }
 
-  return path.join(
-    /* turbopackIgnore: true */ process.cwd(),
-    configuredDirectory,
-  );
+  return path.join(normalizedDirectory, "outputs");
 }
