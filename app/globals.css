@@ -694,43 +694,44 @@ button:disabled {
 .assistant-history-item {
   border: 1px solid rgba(20, 19, 24, 0.08);
   border-radius: 18px;
-  overflow: hidden;
   background: rgba(255, 255, 255, 0.84);
   box-shadow: 0 14px 32px rgba(20, 19, 24, 0.06);
 }
 
-.assistant-history-item summary {
+.assistant-history-summary {
+  width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+  border: 0;
   padding: 14px 16px;
+  color: inherit;
+  background: transparent;
   cursor: pointer;
-  list-style: none;
 }
 
-.assistant-history-item summary::-webkit-details-marker {
-  display: none;
-}
-
-.assistant-history-item summary span {
+.assistant-history-summary span {
   color: rgba(20, 19, 24, 0.5);
   font-size: 0.8rem;
   font-weight: 760;
+  text-align: left;
 }
 
-.assistant-history-item summary strong {
+.assistant-history-summary strong {
   overflow: hidden;
   color: var(--ink);
   font-size: 0.92rem;
   font-weight: 720;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.assistant-history-item summary time {
+.assistant-history-summary time {
   color: rgba(20, 19, 24, 0.42);
   font-size: 0.78rem;
+  text-align: right;
 }
 
 .assistant-history-messages {
@@ -1227,11 +1228,11 @@ button:disabled {
     width: 100%;
   }
 
-  .assistant-history-item summary {
+  .assistant-history-summary {
     grid-template-columns: 1fr auto;
   }
 
-  .assistant-history-item summary span {
+  .assistant-history-summary span {
     grid-column: 1 / -1;
   }
 

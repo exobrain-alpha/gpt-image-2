@@ -144,12 +144,11 @@ export async function POST(request: Request) {
   }
 
   const images = await Promise.all(
-    responseBody?.data?.flatMap((item, index) =>
+    responseBody?.data?.flatMap((item) =>
       item.b64_json
         ? [
             buildImageResult(
               item.b64_json,
-              index,
               payload,
               {
                 apiVersion,
@@ -240,7 +239,6 @@ function buildAzureImageRequest(
 
 async function buildImageResult(
   b64Json: string,
-  index: number,
   payload: GenerateImageRequest,
   context: GenerationContext,
   referenceImage?: ReferenceImageInput,
@@ -248,13 +246,16 @@ async function buildImageResult(
   await mkdir(outputDirectory, { recursive: true });
 
   const timestamp = Date.now();
-  const id = `${formatDateForFileName(new Date(timestamp))}-${timestamp}-${index}`;
+  const id = `${formatDateForFileName(new Date(timestamp))}-${timestamp}`;
   const fileName = `${id}.${payload.outputFormat}`;
   const metadataFileName = `${id}.json`;
   const diskPath = path.join(outputDirectory, fileName);
   const metadataPath = path.join(outputDirectory, metadataFileName);
   const outputUrl = `/api/outputs/${encodeURIComponent(fileName)}`;
   const imageBuffer = Buffer.from(b64Json, "base64");
+  const savedReferenceImage = referenceImage
+    ? await saveReferenceImage(referenceImage, id)
+    : undefined;
   const createdAt = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
@@ -287,13 +288,7 @@ async function buildImageResult(
         createdAt,
         prompt: {
           text: payload.prompt,
-          image: referenceImage
-            ? {
-                fileName: referenceImage.fileName,
-                contentType: referenceImage.contentType,
-                size: referenceImage.size,
-              }
-            : null,
+          image: savedReferenceImage?.fileName ?? null,
           options: {
             size: payload.size,
             quality: payload.quality,
@@ -307,6 +302,7 @@ async function buildImageResult(
           absolutePath: diskPath,
           metadataPath,
           format: payload.outputFormat,
+          referenceImage: savedReferenceImage ?? null,
         },
         provider: context,
       },
@@ -316,6 +312,44 @@ async function buildImageResult(
   );
 
   return result;
+}
+
+async function saveReferenceImage(referenceImage: ReferenceImageInput, id: string) {
+  const originalFileName = path.basename(
+    referenceImage.fileName || "reference-image",
+  );
+  const extension =
+    path.extname(originalFileName).toLowerCase() ||
+    getExtensionForContentType(referenceImage.contentType);
+  const fileName = `${id}-reference${extension}`;
+  const absolutePath = path.join(outputDirectory, fileName);
+  const buffer = Buffer.from(await referenceImage.file.arrayBuffer());
+
+  await writeFile(absolutePath, buffer);
+
+  return {
+    fileName,
+    originalFileName,
+    absolutePath,
+    contentType: referenceImage.contentType,
+    size: referenceImage.size,
+  };
+}
+
+function getExtensionForContentType(contentType: string) {
+  if (contentType === "image/jpeg") {
+    return ".jpg";
+  }
+
+  if (contentType === "image/png") {
+    return ".png";
+  }
+
+  if (contentType === "image/webp") {
+    return ".webp";
+  }
+
+  return "";
 }
 
 async function readAndValidateRequest(request: Request): Promise<

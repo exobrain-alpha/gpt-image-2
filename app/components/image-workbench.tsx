@@ -421,11 +421,11 @@ function PromptAssistantDialog({
   );
   const [draft, setDraft] = useState(initialDraft);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const didSendInitialMessageRef = useRef(false);
-  const isCreatingSessionRef = useRef(false);
   const isAssistantDialogMountedRef = useRef(true);
+  const sessionIdRef = useRef<string | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
@@ -437,77 +437,59 @@ function PromptAssistantDialog({
       ? "请填写提示词或主题"
       : "请输入要调整的内容或补充优化要求";
 
-  useEffect(() => {
-    if (messages.length === 0) {
-      return;
-    }
-
-    const abortController = new AbortController();
-
-    if (!sessionId) {
-      if (isCreatingSessionRef.current) {
+  const persistMessages = useCallback(
+    (nextMessages: PromptAssistantMessage[]) => {
+      if (nextMessages.length === 0) {
         return;
       }
 
-      isCreatingSessionRef.current = true;
+      const messagesToSave = nextMessages.map((message) => ({ ...message }));
 
-      void fetch("/api/prompt-assistant/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          mode,
-          messages,
-        }),
-      })
-        .then(async (response) => {
+      saveQueueRef.current = saveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const currentSessionId = sessionIdRef.current;
+          const response = await fetch("/api/prompt-assistant/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: currentSessionId ? "update" : "create",
+              id: currentSessionId ?? undefined,
+              mode,
+              messages: messagesToSave,
+            }),
+          });
           const data = (await response.json()) as {
             session?: PromptAssistantSession;
             error?: string;
           };
 
           if (!response.ok || !data.session?.id) {
-            throw new Error(data.error ?? "无法创建智能提示词历史文件。");
+            throw new Error(data.error ?? "无法保存智能提示词历史。");
           }
 
-          if (isAssistantDialogMountedRef.current) {
-            setSessionId(data.session.id);
-          }
+          sessionIdRef.current = data.session.id;
         })
         .catch((caught) => {
           if (isAssistantDialogMountedRef.current) {
             setError(
               caught instanceof Error
                 ? caught.message
-                : "无法创建智能提示词历史文件。",
+                : "无法保存智能提示词历史。",
             );
           }
-        })
-        .finally(() => {
-          isCreatingSessionRef.current = false;
         });
+    },
+    [mode],
+  );
 
+  useEffect(() => {
+    if (messages.length === 0) {
       return;
     }
 
-    void fetch("/api/prompt-assistant/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "update",
-        id: sessionId,
-        mode,
-        messages,
-      }),
-      signal: abortController.signal,
-    }).catch(() => {
-      if (!abortController.signal.aborted) {
-        setError("无法保存智能提示词历史。");
-      }
-    });
-
-    return () => abortController.abort();
-  }, [messages, mode, sessionId]);
+    persistMessages(messages);
+  }, [messages, persistMessages]);
 
   useEffect(() => {
     return () => {
@@ -541,11 +523,13 @@ function PromptAssistantDialog({
         }
 
         const assistantPrompt = data.prompt.trim();
-
-        setMessages((current) => [
-          ...current,
+        const completedMessages: PromptAssistantMessage[] = [
+          ...nextMessages,
           { role: "assistant", content: assistantPrompt },
-        ]);
+        ];
+
+        setMessages(completedMessages);
+        persistMessages(completedMessages);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") {
           setError(null);
@@ -563,7 +547,7 @@ function PromptAssistantDialog({
         setIsSending(false);
       }
     },
-    [],
+    [persistMessages],
   );
 
   const stopSending = useCallback(() => {
@@ -580,8 +564,14 @@ function PromptAssistantDialog({
     }
 
     didSendInitialMessageRef.current = true;
+    persistMessages([{ role: "user", content: normalizedInitialMessage }]);
     void sendMessages([{ role: "user", content: normalizedInitialMessage }]);
-  }, [autoSendInitialMessage, normalizedInitialMessage, sendMessages]);
+  }, [
+    autoSendInitialMessage,
+    normalizedInitialMessage,
+    persistMessages,
+    sendMessages,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -632,12 +622,17 @@ function PromptAssistantDialog({
     ];
 
     setMessages(nextMessages);
+    persistMessages(nextMessages);
     setDraft("");
     void sendMessages(nextMessages);
   };
 
   return (
-    <div className="assistant-layer" role="presentation" onClick={onCancel}>
+    <div
+      className="assistant-layer assistant-history-layer"
+      role="presentation"
+      onClick={onCancel}
+    >
       <section
         className="assistant-dialog"
         role="dialog"
@@ -788,6 +783,9 @@ function PromptAssistantHistoryDialog({
   onCancel: () => void;
 }) {
   const [sessions, setSessions] = useState<PromptAssistantSession[]>([]);
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -878,41 +876,64 @@ function PromptAssistantHistoryDialog({
           {!isLoading && !error && sessions.length === 0 ? (
             <p className="assistant-history-empty">暂无历史会话</p>
           ) : null}
-          {sessions.map((session) => (
-            <details key={session.id} className="assistant-history-item">
-              <summary>
+          {sessions.map((session) => {
+            const isExpanded = expandedSessionIds.has(session.id);
+
+            return (
+              <article key={session.id} className="assistant-history-item">
+                <button
+                  type="button"
+                  className="assistant-history-summary"
+                  onClick={() =>
+                    setExpandedSessionIds((current) => {
+                      const next = new Set(current);
+
+                      if (next.has(session.id)) {
+                        next.delete(session.id);
+                      } else {
+                        next.add(session.id);
+                      }
+
+                      return next;
+                    })
+                  }
+                  aria-expanded={isExpanded}
+                >
                 <span>
                   {session.mode === "create" ? "智能提示词" : "调整提示词"}
                 </span>
                 <strong>{getSessionSummary(session)}</strong>
                 <time>{session.updatedAt || session.createdAt}</time>
-              </summary>
-              <div className="assistant-history-messages">
-                {session.messages.map((message, index) => (
-                  <article
-                    key={`${session.id}-${message.role}-${index}`}
-                    className={`assistant-message assistant-message-${message.role}`}
-                  >
-                    <span>{message.role === "assistant" ? "AI" : "你"}</span>
-                    <div className="assistant-message-bubble">
-                      <p>{message.content}</p>
-                      <footer className="assistant-message-actions">
-                        <CopyPromptButton content={message.content} />
-                        {message.role === "assistant" ? (
-                          <button
-                            type="button"
-                            onClick={() => onApply(message.content)}
-                          >
-                            应用
-                          </button>
-                        ) : null}
-                      </footer>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </details>
-          ))}
+                </button>
+                {isExpanded ? (
+                  <div className="assistant-history-messages">
+                    {session.messages.map((message, index) => (
+                      <article
+                        key={`${session.id}-${message.role}-${index}`}
+                        className={`assistant-message assistant-message-${message.role}`}
+                      >
+                        <span>{message.role === "assistant" ? "AI" : "你"}</span>
+                        <div className="assistant-message-bubble">
+                          <p>{message.content}</p>
+                          <footer className="assistant-message-actions">
+                            <CopyPromptButton content={message.content} />
+                            {message.role === "assistant" ? (
+                              <button
+                                type="button"
+                                onClick={() => onApply(message.content)}
+                              >
+                                应用
+                              </button>
+                            ) : null}
+                          </footer>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>
