@@ -9,6 +9,7 @@ import {
   isValidImageSize,
   type GenerateImageRequest,
 } from "@/lib/image-options";
+import { getOutputDirectory } from "@/lib/output-directory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
