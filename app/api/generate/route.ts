@@ -72,8 +72,7 @@ export async function POST(request: Request) {
     process.env.AZURE_OPENAI_API_KEY ?? process.env.AZURE_AI_API_KEY;
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_NAME ?? defaultDeployment;
-  const apiVersion =
-    process.env.AZURE_OPENAI_API_VERSION ?? defaultApiVersion;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? defaultApiVersion;
 
   if (!endpoint || !apiKey) {
     return NextResponse.json(
@@ -96,7 +95,11 @@ export async function POST(request: Request) {
   let response: Response;
 
   try {
-    const azureRequest = buildAzureImageRequest(payload, apiKey, referenceImage);
+    const azureRequest = buildAzureImageRequest(
+      payload,
+      apiKey,
+      referenceImage,
+    );
 
     response = await fetch(url, {
       method: "POST",
@@ -115,9 +118,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const responseBody = (await response.json().catch(() => null)) as
-    | AzureImageResponse
-    | null;
+  const responseBody = (await response
+    .json()
+    .catch(() => null)) as AzureImageResponse | null;
 
   if (!response.ok || responseBody?.error) {
     const friendlyError = getFriendlyAzureError(
@@ -129,8 +132,7 @@ export async function POST(request: Request) {
     );
     const azureCode = responseBody?.error?.code;
     const deploymentNotFound =
-      response.status === 404 ||
-      azureCode === "DeploymentNotFound";
+      response.status === 404 || azureCode === "DeploymentNotFound";
 
     return NextResponse.json(
       {
@@ -139,17 +141,18 @@ export async function POST(request: Request) {
         type: responseBody?.error?.type,
         innerCode: responseBody?.error?.inner_error?.code,
       },
-      { status: deploymentNotFound ? 404 : response.ok ? 502 : response.status },
+      {
+        status: deploymentNotFound ? 404 : response.ok ? 502 : response.status,
+      },
     );
   }
 
   const images = await Promise.all(
-    responseBody?.data?.flatMap((item, index) =>
+    responseBody?.data?.flatMap((item) =>
       item.b64_json
         ? [
             buildImageResult(
               item.b64_json,
-              index,
               payload,
               {
                 apiVersion,
@@ -179,19 +182,19 @@ function buildGenerationUrl(
   deployment: string,
   apiVersion: string,
 ) {
-  const normalizedEndpoint = endpoint.endsWith("/")
-    ? endpoint
-    : `${endpoint}/`;
+  const normalizedEndpoint = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
 
   return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
     deployment,
   )}/images/generations?api-version=${encodeURIComponent(apiVersion)}`;
 }
 
-function buildEditUrl(endpoint: string, deployment: string, apiVersion: string) {
-  const normalizedEndpoint = endpoint.endsWith("/")
-    ? endpoint
-    : `${endpoint}/`;
+function buildEditUrl(
+  endpoint: string,
+  deployment: string,
+  apiVersion: string,
+) {
+  const normalizedEndpoint = endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
 
   return `${normalizedEndpoint}openai/deployments/${encodeURIComponent(
     deployment,
@@ -240,7 +243,6 @@ function buildAzureImageRequest(
 
 async function buildImageResult(
   b64Json: string,
-  index: number,
   payload: GenerateImageRequest,
   context: GenerationContext,
   referenceImage?: ReferenceImageInput,
@@ -248,13 +250,16 @@ async function buildImageResult(
   await mkdir(outputDirectory, { recursive: true });
 
   const timestamp = Date.now();
-  const id = `${formatDateForFileName(new Date(timestamp))}-${timestamp}-${index}`;
+  const id = `${formatDateForFileName(new Date(timestamp))}-${timestamp}`;
   const fileName = `${id}.${payload.outputFormat}`;
   const metadataFileName = `${id}.json`;
   const diskPath = path.join(outputDirectory, fileName);
   const metadataPath = path.join(outputDirectory, metadataFileName);
   const outputUrl = `/api/outputs/${encodeURIComponent(fileName)}`;
   const imageBuffer = Buffer.from(b64Json, "base64");
+  const savedReferenceImage = referenceImage
+    ? await saveReferenceImage(referenceImage, id)
+    : undefined;
   const createdAt = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
@@ -287,13 +292,7 @@ async function buildImageResult(
         createdAt,
         prompt: {
           text: payload.prompt,
-          image: referenceImage
-            ? {
-                fileName: referenceImage.fileName,
-                contentType: referenceImage.contentType,
-                size: referenceImage.size,
-              }
-            : null,
+          image: savedReferenceImage?.fileName ?? null,
           options: {
             size: payload.size,
             quality: payload.quality,
@@ -307,6 +306,7 @@ async function buildImageResult(
           absolutePath: diskPath,
           metadataPath,
           format: payload.outputFormat,
+          referenceImage: savedReferenceImage ?? null,
         },
         provider: context,
       },
@@ -318,17 +318,59 @@ async function buildImageResult(
   return result;
 }
 
-async function readAndValidateRequest(request: Request): Promise<
-  | { ok: true; value: ValidatedGenerateRequest }
-  | { ok: false; error: string }
+async function saveReferenceImage(
+  referenceImage: ReferenceImageInput,
+  id: string,
+) {
+  const originalFileName = path.basename(
+    referenceImage.fileName || "reference-image",
+  );
+  const extension =
+    path.extname(originalFileName).toLowerCase() ||
+    getExtensionForContentType(referenceImage.contentType);
+  const fileName = `${id}-reference${extension}`;
+  const absolutePath = path.join(outputDirectory, fileName);
+  const buffer = Buffer.from(await referenceImage.file.arrayBuffer());
+
+  await writeFile(absolutePath, buffer);
+
+  return {
+    fileName,
+    originalFileName,
+    absolutePath,
+    contentType: referenceImage.contentType,
+    size: referenceImage.size,
+  };
+}
+
+function getExtensionForContentType(contentType: string) {
+  if (contentType === "image/jpeg") {
+    return ".jpg";
+  }
+
+  if (contentType === "image/png") {
+    return ".png";
+  }
+
+  if (contentType === "image/webp") {
+    return ".webp";
+  }
+
+  return "";
+}
+
+async function readAndValidateRequest(
+  request: Request,
+): Promise<
+  { ok: true; value: ValidatedGenerateRequest } | { ok: false; error: string }
 > {
   if (request.headers.get("content-type")?.includes("multipart/form-data")) {
     return readAndValidateMultipartRequest(request);
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | ImageRequestInput
-    | null;
+  const body = (await request
+    .json()
+    .catch(() => null)) as ImageRequestInput | null;
 
   const validation = validateImageRequestBody(body);
 
@@ -344,9 +386,10 @@ async function readAndValidateRequest(request: Request): Promise<
   };
 }
 
-async function readAndValidateMultipartRequest(request: Request): Promise<
-  | { ok: true; value: ValidatedGenerateRequest }
-  | { ok: false; error: string }
+async function readAndValidateMultipartRequest(
+  request: Request,
+): Promise<
+  { ok: true; value: ValidatedGenerateRequest } | { ok: false; error: string }
 > {
   const formData = await request.formData().catch(() => null);
 
@@ -463,10 +506,7 @@ function getFriendlyAzureError(
   const message = error?.message ?? "";
   const normalized = `${code} ${innerCode} ${message}`.toLowerCase();
 
-  if (
-    status === 404 ||
-    code === "DeploymentNotFound"
-  ) {
+  if (status === 404 || code === "DeploymentNotFound") {
     return `找不到 Azure OpenAI deployment：${deployment}。当前使用 ${endpointKind} endpoint，api-version=${apiVersion}。请检查 deployment 名称、endpoint 类型和 API 版本。`;
   }
 
