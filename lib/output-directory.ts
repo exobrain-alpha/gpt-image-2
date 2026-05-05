@@ -14,15 +14,5 @@ export function getOutputDirectory() {
         configuredDirectory,
       );
 
-  return ensureOutputsDirectory(resolvedDirectory);
-}
-
-function ensureOutputsDirectory(directory: string) {
-  const normalizedDirectory = path.normalize(directory);
-
-  if (path.basename(normalizedDirectory) === "outputs") {
-    return normalizedDirectory;
-  }
-
-  return path.join(normalizedDirectory, "outputs");
+  return path.join(path.normalize(resolvedDirectory), "outputs");
 }

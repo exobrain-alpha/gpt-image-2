@@ -26,7 +26,7 @@ AZURE_OPENAI_ENDPOINT=https://your-resource.services.ai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key
 AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
 # AZURE_OPENAI_API_VERSION=2025-04-01-preview
-# OUTPUT_DIRECTORY=outputs
+OUTPUT_DIRECTORY=
 
 AZURE_CLAUDE_ENDPOINT=
 AZURE_CLAUDE_API_KEY=
@@ -35,10 +35,10 @@ AZURE_CLAUDE_DEPLOYMENT_NAME=claude-opus-4-7
 
 `AZURE_OPENAI_ENDPOINT` 填资源的 base endpoint，不要填完整 Target URI。应用会自动拼接 `/openai/deployments/...` 路径。
 
-`OUTPUT_DIRECTORY` 用于自定义生成图片和元数据的父级目录。无论填写相对路径还是绝对路径，最终都会落到名为 `outputs` 的目录中：
+`OUTPUT_DIRECTORY` 用于自定义生成图片和元数据的父级目录。留空时使用项目根目录下的 `outputs`；填写后会在该路径下创建并使用 `outputs`：
 
-- 未设置：`项目根目录/outputs`
-- `OUTPUT_DIRECTORY=outputs`：`项目根目录/outputs`
+- 未设置或留空：`项目根目录/outputs`
+- `OUTPUT_DIRECTORY=outputs`：`项目根目录/outputs/outputs`
 - `OUTPUT_DIRECTORY=custom-data`：`项目根目录/custom-data/outputs`
 - `OUTPUT_DIRECTORY=/data/gpt-image-2`：`/data/gpt-image-2/outputs`
 
